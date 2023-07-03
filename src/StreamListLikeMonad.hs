@@ -12,16 +12,24 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE QuantifiedConstraints #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE StandaloneDeriving #-}
  
-module StreamListLikeMonad
-    ( someFunc
-    ) where
+module StreamListLikeMonad where
 import Prelude (IO, putStrLn, return)
 import Prelude qualified
 import Data.Coerce
 import Data.Kind (Constraint, Type)
 import Streaming.Internal hiding (concats, maps, yields)
 import Control.Monad.Trans.Identity (IdentityT (..))
+import Data.Proxy (Proxy(..))
+import Control.Monad.Trans.Compose (ComposeT(..))
+import Data.Functor.Compose (Compose(..))
+import Data.Functor.Identity ( Identity(..) )
+import Data.Maybe (Maybe)
+import Control.Monad qualified
+import qualified Control.Applicative
  
 someFunc :: IO ()
 someFunc = putStrLn "someFunc"
@@ -33,13 +41,98 @@ someFunc = putStrLn "someFunc"
  
 type Morphism object_kind = object_kind -> object_kind -> Type
  
-type Category :: Morphism k -> Constraint
+type Category :: forall {k}. Morphism k -> Constraint
 class Category morphism where
   type ObjectConstraint morphism :: i -> Constraint
   id :: ObjectConstraint morphism a => a `morphism` a
   (.) :: (b `morphism` c) -> (a `morphism` b) -> (a `morphism` c)
  
- 
+type TensorProduct k = k -> k -> k
+type TensorUnit k = k
+
+type MonoidalCategory :: forall {k}. TensorUnit k -> TensorProduct k -> Morphism k -> Constraint
+class ({-Bi FunctorOf morphism m,-} Category morphism) => MonoidalCategory e m morphism | morphism -> e, morphism -> m where
+    rassoc :: (ObjectConstraint morphism a, ObjectConstraint morphism b, ObjectConstraint morphism c) => ((a `m` b) `m` c) `morphism` (a `m` (b `m` c))
+    lassoc :: (ObjectConstraint morphism a, ObjectConstraint morphism b, ObjectConstraint morphism c) => (a `m` (b `m` c)) `morphism` ((a `m` b) `m` c)
+    rleftunit :: ObjectConstraint morphism a => (e `m` a) `morphism` a
+    lleftunit :: ObjectConstraint morphism a => a `morphism` (e `m` a)
+    rrightunit :: ObjectConstraint morphism a => (a `m` e) `morphism` a
+    lrightunit :: ObjectConstraint morphism a => a `morphism` (a `m` e)
+    
+type MonoidInMonoidalCategory :: forall {k}. k -> (k -> k -> k) -> Morphism k -> k -> Constraint
+class (MonoidalCategory e m morphism) => MonoidInMonoidalCategory e m morphism a | a -> morphism where
+  mu :: (a `m` a) `morphism` a
+  nu :: e `morphism` a
+
+type VertComposition a b c = (b -> c) -> (a -> b) -> (a -> c)
+type VertIdentity a = a -> a
+
+-- Morphism (k -> k) denotes the category of endofunctors
+-- a Monad is a monoid in the category of endofunctors where the 
+-- tensor product @m@ is composition and the tensor unit @e@ is identity
+type Monad :: forall {k}. VertIdentity k -> VertComposition k k k -> Morphism (k -> k) -> (k -> k) -> Constraint
+type Monad e m morphism a = MonoidInMonoidalCategory e m morphism a
+-- type Monad :: VertIdentity k -> VertComposition k k k -> Morphism (k -> k) -> (k -> k) -> Constraint
+-- class MonoidInMonoidalCategory e m morphism a => Monad e m morphism a where
+
+-- type TwoCategory :: forall {k}. Morphism k -> Morphism (k -> k) -> Constraint
+-- class (Category one_morphism, Category two_morphism) => TwoCategory one_morphism two_morphism | two_morphism -> one_morphism
+-- type TwoCategory :: forall {k}. TensorUnit k -> TensorProduct k ->  VertIdentity k -> VertComposition k k k -> Morphism k -> Morphism (k -> k) -> Constraint
+-- class 
+--     ( -- Category one_morphism
+--     --, Category two_morphism
+--       MonoidalCategory hor_e hor_p one_morphism
+--     ) 
+--     => TwoCategory hor_e hor_p vert_e vert_p (one_morphism :: k -> k -> Type) two_morphism | two_morphism -> one_morphism where
+--   rexchange :: forall (a :: k) (b :: k) (c :: k) (d :: k). ((a `hor_p` b) `vert_p` (a `hor_p` b))`one_morphism` ((a `hor_p` b) `vert_p` (a `hor_p` b))
+--   lexchange :: forall (a :: k) (b :: k) (c :: k) (d :: k). ((a `vert_p` b) `hor_p` (a `vert_p` b))`one_morphism` ((a `vert_p` b) `hor_p` (a `vert_p` b))
+
+type HomCategory :: forall {k}. Morphism k -> k -> k -> (k -> k) -> (k -> k) -> Type
+newtype HomCategory morphism a b f g = MkHomSet (f a `morphism` g b)
+
+class (forall a b. Category (HomCategory one_morphism a b)) => TwoCategory one_morphism two_morphism | two_morphism -> one_morphism
+
+
+
+class MonoidalCategory e p two_morphism => VertComp e p one_morphism two_morphism | two_morphism -> one_morphism where
+  lvertComp :: Proxy two_morphism -> (p m m) a `one_morphism` m (m a)
+  rvertComp :: Proxy two_morphism -> m (m a) `one_morphism` (p m m) a
+
+  lvertId :: Proxy two_morphism -> e a `one_morphism` a
+  rvertId :: Proxy two_morphism -> a `one_morphism` e a
+
+  lenriched :: Proxy two_morphism -> (forall a. f a `one_morphism` g a) -> (f `two_morphism` g)
+  renriched :: Proxy two_morphism -> (f `two_morphism` g) -> (forall a. f a `one_morphism` g a)
+
+
+type StrictMonad :: forall {k}. VertIdentity k -> VertComposition k k k -> Morphism k -> Morphism (k -> k) -> (k -> k) -> Constraint
+class 
+    ( --forall (a :: k). Coercible (e a) a
+    --, forall (a :: k). Coercible ((p m m) a) (m (m a))
+    --, forall (f :: k -> k) (g :: k -> k). Coercible (f `two_morphism` g) (NatCopy one_morphism f g) -- move this constraint to the definition of TwoCategory?
+    --, forall (a :: k) (b :: k) (c :: k). Coercible a b => Coercible (a `one_morphism` c) (b `one_morphism` c)  -- is this constraint related to (.#) from the profunctor module? Basically this requires that one_morphism is a newtype whose first argument must not have the nominal role, see https://hackage.haskell.org/package/base-4.18.0.0/docs/Data-Coerce.html#t:Coercible
+     Monad e p two_morphism m
+    , Category one_morphism
+    , VertComp e p one_morphism two_morphism
+    -- , TwoCategory e' p' e p one_morphism two_morphism
+    )
+    => StrictMonad e p one_morphism two_morphism (m :: k -> k) where
+  join :: forall a. (m (m a) `one_morphism` m a)
+  -- join = coerce gg
+  --   where
+  --     gg :: (p m m) a `one_morphism` m a
+  --     gg = coerce (mu @e @p @two_morphism @m)
+  join = renriched (Proxy @two_morphism) mu . rvertComp (Proxy @two_morphism)
+      
+  returN :: forall a. (a `one_morphism` m a)
+  -- returN = coerce gg
+  --   where
+  --     gg :: e a `one_morphism` m a
+  --     gg = coerce (nu @e @p @two_morphism @m)
+  returN = renriched (Proxy @two_morphism) nu . rvertId (Proxy @two_morphism)
+
+
+
 type Functor :: forall {i} {j}. Morphism i -> Morphism j -> (i -> j) -> Constraint
 class (Category src_morphism, Category tgt_morphism) => Functor src_morphism tgt_morphism f | f -> src_morphism tgt_morphism where
   fmap :: ObjectConstraint src_morphism a => (a `src_morphism` b) -> (f a `tgt_morphism` f b)
@@ -50,19 +143,6 @@ type RelativeMonad :: forall {i} {j}. Morphism i -> Morphism j -> (i -> j) -> (i
 class (Functor src_morphism tgt_morphism j, Functor src_morphism tgt_morphism m) => RelativeMonad src_morphism tgt_morphism j m | m -> j where
   pure :: ObjectConstraint src_morphism a => j a `tgt_morphism` m a
   (=<<) :: (ObjectConstraint src_morphism a, ObjectConstraint src_morphism b) => (j a `tgt_morphism` m b) -> (m a `tgt_morphism` m b)
- 
- 
--- #########################################
--- definition of natural transformation (Nat) and its Category instance
--- #########################################
- 
-type Nat :: (Type -> Type) -> (Type -> Type) -> Type
-newtype Nat f g = Nat (forall a. (->) (f a) (g a))
-        
-instance Category Nat where
-  type ObjectConstraint Nat = Functor (->) (->)
-  id = Nat id
-  (.) (Nat f) (Nat g) = Nat (f . g)
  
   
 -- #########################################
@@ -80,6 +160,54 @@ instance Vacuous c a
  
  
 -- #########################################
+-- definition of natural transformation (Nat) and its Category instance
+-- #########################################
+ 
+type Nat :: (Type -> Type) -> (Type -> Type) -> Type
+newtype Nat f g = Nat { runNat :: forall a. (->) (f a) (g a) }
+        
+instance Category Nat where
+  type ObjectConstraint Nat = Functor (->) (->)
+  id = Nat id
+  (.) (Nat f) (Nat g) = Nat (f . g)
+
+instance MonoidalCategory Identity Compose Nat where
+  -- in case of the assoc and rightunit conversions we need to utilize the Functor instance of the most outer functor, because the role of its type argument could be nominal
+  rassoc = Nat (Compose . fmap Compose . getCompose . getCompose)
+  lassoc =  Nat (Compose . Compose . fmap getCompose . getCompose)
+  rleftunit = Nat coerce
+  lleftunit = Nat coerce
+  rrightunit = Nat (fmap runIdentity . getCompose)
+  lrightunit = Nat (Compose . fmap Identity)
+
+instance VertComp Identity Compose (->) Nat where
+  lvertComp _ = getCompose
+  rvertComp _ = Compose
+  lvertId _ = runIdentity
+  rvertId _ = Identity
+  lenriched _ = Nat
+  renriched _ = runNat
+
+ -- #########################################
+-- definition of transformations of natural transformation (NatNat) and its Category instance
+-- #########################################
+ 
+type NatNat :: ((Type -> Type) -> (Type -> Type)) -> ((Type -> Type) -> (Type -> Type)) -> Type
+newtype NatNat f g = NatNat (forall a. Nat (f a) (g a))
+        
+instance Category NatNat where
+--   type ObjectConstraint NatNat = Functor Nat Nat
+--   id :: forall a. Functor Nat Nat a => NatNat a a
+--   id = NatNat id
+--     where
+--       gg = id @Nat
+--   (.) (NatNat f) (NatNat g) = NatNat (f . g)
+
+instance MonoidalCategory IdentityT ComposeT NatNat
+instance VertComp IdentityT ComposeT Nat NatNat
+
+ 
+-- #########################################
 -- instances for IdentityT
 -- #########################################
  
@@ -90,6 +218,26 @@ instance Functor Nat Nat IdentityT where
 instance Functor (->) (->) f => Functor (->) (->) (IdentityT f) where
   fmap func = coerce (fmap @(->) @(->) @f func)
   
+
+
+
+-- #########################################
+-- instances for familiar Monads such as Maybe or IO
+-- #########################################
+
+instance Control.Monad.Monad m => MonoidInMonoidalCategory Identity Compose Nat (Control.Applicative.WrappedMonad m) where
+  mu = Nat (Control.Monad.join . coerce)
+  nu = Nat (Control.Monad.return . coerce)
+
+instance Control.Monad.Monad m => StrictMonad Identity Compose (->) Nat (Control.Applicative.WrappedMonad m)
+
+
+deriving via (Control.Applicative.WrappedMonad IO) instance MonoidInMonoidalCategory Identity Compose Nat IO
+deriving via (Control.Applicative.WrappedMonad IO) instance StrictMonad Identity Compose (->) Nat IO
+
+deriving via (Control.Applicative.WrappedMonad Maybe) instance MonoidInMonoidalCategory Identity Compose Nat Maybe
+deriving via (Control.Applicative.WrappedMonad Maybe) instance StrictMonad Identity Compose (->) Nat Maybe
+
  
 -- #########################################
 -- definition of StreamFlip and its instances
@@ -108,6 +256,9 @@ instance (Prelude.Monad m) => RelativeMonad Nat Nat IdentityT (StreamFlip m) whe
   pure = Nat (coerce yields)
   (=<<) (Nat f) = Nat (coerce (concats @_ @m . maps @m @_ @(Stream _ m) (coerce f)))
  
+
+instance MonoidInMonoidalCategory IdentityT ComposeT NatNat (StreamFlip m)
+instance StrictMonad IdentityT ComposeT Nat NatNat (StreamFlip m)
  
 -- #########################################
 -- definitions for Stream
