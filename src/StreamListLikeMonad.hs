@@ -14,10 +14,11 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE DerivingVia #-}
-{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE StandaloneDeriving #-} 
+{-# LANGUAGE UndecidableInstances #-}
  
 module StreamListLikeMonad where
-import Prelude (IO, putStrLn, return)
+import Prelude (IO, putStrLn, undefined)
 import Prelude qualified
 import Data.Coerce
 import Data.Kind (Constraint, Type)
@@ -30,7 +31,8 @@ import Data.Functor.Identity ( Identity(..) )
 import Data.Maybe (Maybe)
 import Control.Monad qualified
 import qualified Control.Applicative
- 
+import Data.Type.Equality ( type (~) ) 
+
 someFunc :: IO ()
 someFunc = putStrLn "someFunc"
  
@@ -134,7 +136,14 @@ class
 
 
 type Functor :: forall {i} {j}. Morphism i -> Morphism j -> (i -> j) -> Constraint
-class (Category src_morphism, Category tgt_morphism) => Functor src_morphism tgt_morphism f | f -> src_morphism tgt_morphism where
+class
+    ( Category src_morphism
+    , Category tgt_morphism
+    -- , forall a. ObjectConstraint src_morphism a => ObjectConstraint tgt_morphism (f a)
+    -- the line above does not work, see https://gitlab.haskell.org/ghc/ghc/-/issues/16123 , instead we use a workaround in the line below:
+    , forall objConstr a. (objConstr ~ ObjectConstraint tgt_morphism, ObjectConstraint src_morphism a) => objConstr (f a)
+    ) 
+    => Functor (src_morphism) tgt_morphism f | f -> src_morphism tgt_morphism where
   fmap :: ObjectConstraint src_morphism a => (a `src_morphism` b) -> (f a `tgt_morphism` f b)
  
  
@@ -163,20 +172,37 @@ instance Vacuous c a
 -- definition of natural transformation (Nat) and its Category instance
 -- #########################################
  
+
 type Nat :: (Type -> Type) -> (Type -> Type) -> Type
-newtype Nat f g = Nat { runNat :: forall a. (->) (f a) (g a) }
-        
-instance Category Nat where
-  type ObjectConstraint Nat = Functor (->) (->)
+type Nat = NatTrans (->)
+
+type NatNat :: ((Type -> Type) -> (Type -> Type)) -> ((Type -> Type) -> (Type -> Type)) -> Type
+type NatNat = NatTrans Nat
+
+type NatTrans :: forall {k} {i}. Morphism k -> (i -> k) -> (i -> k) -> Type
+data NatTrans morphism f g where
+  -- Nat :: Functor morphism morphism f => { runNat :: forall a. morphism (f a) (g a) } -> NatTrans morphism f g
+  Nat :: { runNat :: forall a. ObjectConstraint morphism a => morphism (f a) (g a) } -> NatTrans morphism f g
+      
+instance Category morphism => Category (NatTrans (morphism :: Morphism k) :: (k -> k) -> (k -> k) -> Type) where
+  type ObjectConstraint (NatTrans morphism) = Functor morphism morphism
   id = Nat id
   (.) (Nat f) (Nat g) = Nat (f . g)
+
+-- type Nat :: (Type -> Type) -> (Type -> Type) -> Type
+-- newtype Nat f g = Nat { runNat :: forall a. (->) (f a) (g a) }
+        
+-- instance Category Nat where
+--   type ObjectConstraint Nat = Functor (->) (->)
+--   id = Nat id
+--   (.) (Nat f) (Nat g) = Nat (f . g)
 
 instance MonoidalCategory Identity Compose Nat where
   -- in case of the assoc and rightunit conversions we need to utilize the Functor instance of the most outer functor, because the role of its type argument could be nominal
   rassoc = Nat (Compose . fmap Compose . getCompose . getCompose)
   lassoc =  Nat (Compose . Compose . fmap getCompose . getCompose)
-  rleftunit = Nat coerce
-  lleftunit = Nat coerce
+  rleftunit = Nat (runIdentity . getCompose)
+  lleftunit = Nat (Compose . Identity)
   rrightunit = Nat (fmap runIdentity . getCompose)
   lrightunit = Nat (Compose . fmap Identity)
 
@@ -185,17 +211,17 @@ instance VertComp Identity Compose (->) Nat where
   rvertComp _ = Compose
   lvertId _ = runIdentity
   rvertId _ = Identity
-  lenriched _ = Nat
-  renriched _ = runNat
+  lenriched _ f = Nat f
+  renriched _ f = runNat f
 
  -- #########################################
 -- definition of transformations of natural transformation (NatNat) and its Category instance
 -- #########################################
  
-type NatNat :: ((Type -> Type) -> (Type -> Type)) -> ((Type -> Type) -> (Type -> Type)) -> Type
-newtype NatNat f g = NatNat (forall a. Nat (f a) (g a))
+-- type NatNat :: ((Type -> Type) -> (Type -> Type)) -> ((Type -> Type) -> (Type -> Type)) -> Type
+-- newtype NatNat f g = NatNat (forall a. Nat (f a) (g a))
         
-instance Category NatNat where
+-- instance Category NatNat where
 --   type ObjectConstraint NatNat = Functor Nat Nat
 --   id :: forall a. Functor Nat Nat a => NatNat a a
 --   id = NatNat id
@@ -203,10 +229,38 @@ instance Category NatNat where
 --       gg = id @Nat
 --   (.) (NatNat f) (NatNat g) = NatNat (f . g)
 
-instance MonoidalCategory IdentityT ComposeT NatNat
-instance VertComp IdentityT ComposeT Nat NatNat
+fmap2 :: forall f a b. (Functor Nat Nat f, Functor (->) (->) a) => (forall x. a x -> b x) -> (forall x. f a x -> f b x)
+fmap2 f = runNat (fmap @Nat @Nat @f @a @b (Nat f))
+instance MonoidalCategory IdentityT ComposeT NatNat where
+  rassoc = Nat (Nat (ComposeT . fmap2 ComposeT . getComposeT . getComposeT))
+  lassoc = Nat (Nat (ComposeT . ComposeT . fmap2 getComposeT . getComposeT))
+  rleftunit = Nat (Nat (runIdentityT . getComposeT))
+  lleftunit = Nat (Nat (ComposeT . IdentityT))
+  rrightunit = Nat (Nat (fmap2 runIdentityT . getComposeT))
+  lrightunit = Nat (Nat (ComposeT . fmap2 IdentityT))
+
+
+instance VertComp IdentityT ComposeT Nat NatNat where
+  lvertComp _ = Nat getComposeT
+  rvertComp _ = Nat ComposeT
+  lvertId _ = Nat runIdentityT
+  rvertId _ = Nat IdentityT
+  lenriched _ f = Nat f
+  -- renriched _ f = runNat f
+
+
 
  
+-- #########################################
+-- instances for ComposeT
+-- #########################################
+
+instance Functor (->) (->) (f (g a)) => Functor (->) (->) (ComposeT f g a) where
+  fmap :: forall x y. (x -> y) -> ComposeT f g a x -> ComposeT f g a y
+  fmap = coerce (fmap @(->) @(->) @(f (g a)) @x @y)
+ 
+
+
 -- #########################################
 -- instances for IdentityT
 -- #########################################
@@ -232,11 +286,15 @@ instance Control.Monad.Monad m => MonoidInMonoidalCategory Identity Compose Nat 
 instance Control.Monad.Monad m => StrictMonad Identity Compose (->) Nat (Control.Applicative.WrappedMonad m)
 
 
-deriving via (Control.Applicative.WrappedMonad IO) instance MonoidInMonoidalCategory Identity Compose Nat IO
-deriving via (Control.Applicative.WrappedMonad IO) instance StrictMonad Identity Compose (->) Nat IO
+instance MonoidInMonoidalCategory Identity Compose Nat IO where
+  mu = Nat (Control.Monad.join . coerce)
+  nu = Nat (Control.Monad.return . coerce)
+instance StrictMonad Identity Compose (->) Nat IO
 
-deriving via (Control.Applicative.WrappedMonad Maybe) instance MonoidInMonoidalCategory Identity Compose Nat Maybe
-deriving via (Control.Applicative.WrappedMonad Maybe) instance StrictMonad Identity Compose (->) Nat Maybe
+instance MonoidInMonoidalCategory Identity Compose Nat Maybe where
+  mu = Nat (Control.Monad.join . coerce)
+  nu = Nat (Control.Monad.return . coerce)
+instance StrictMonad Identity Compose (->) Nat Maybe
 
  
 -- #########################################
@@ -271,7 +329,7 @@ instance (Functor (->) (->) f, Prelude.Monad m) => Functor (->) (->) (Stream f m
   fmap f = loop where
     loop stream = case stream of
       Return r -> Return (f r)
-      Effect m -> Effect (do {stream' <- m; return (loop stream')})
+      Effect m -> Effect (do {stream' <- m; Prelude.return (loop stream')})
       Step   g -> Step (fmap loop g)
   {-# INLINABLE fmap #-}
  
