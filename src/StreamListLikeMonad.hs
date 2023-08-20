@@ -149,10 +149,141 @@ type Monad e m morphism a = MonoidInMonoidalCategory morphism m e a
 --   rexchange :: forall (a :: k) (b :: k) (c :: k) (d :: k). ((a `hor_p` b) `vert_p` (a `hor_p` b))`one_morphism` ((a `hor_p` b) `vert_p` (a `hor_p` b))
 --   lexchange :: forall (a :: k) (b :: k) (c :: k) (d :: k). ((a `vert_p` b) `hor_p` (a `vert_p` b))`one_morphism` ((a `vert_p` b) `hor_p` (a `vert_p` b))
 
+
+
+-- type TwoCategoryProper :: (zero_cell -> zero_cell -> Morphism one_cell) -> Constraint
+-- class (forall (x :: zero_cell) (y :: zero_cell). Category (two_cat x y)) => TwoCategoryProper (two_cat :: (zero_cell -> zero_cell -> Morphism one_cell)) where
+--   vert_id :: forall (x :: zero_cell) (y :: zero_cell) (a :: one_cell). ObjectConstraint (two_cat x y) a => two_cat x y a a
+--   vert_id = id @(two_cat x y)
+
+--   (.|) :: forall (x :: zero_cell) (y :: zero_cell) (a :: one_cell) (b :: one_cell) (c :: one_cell). two_cat x y b c -> two_cat x y a b -> two_cat x y a c
+--   (.|) = (.)
+
+
+
+--   -- MonoidalCategory e p (two_cat x y)
+
+-- -- type TwoCategoryProper :: (zero_cell -> zero_cell -> Morphism one_cell) -> Constraint
+-- class (forall (x :: zero_cell) (y :: zero_cell). Category (two_cat x y), Morphism one_cell ~ two_cell) => TwoCategoryProper (two_cat :: (zero_cell -> zero_cell -> Morphism one_cell)) (e :: two_cell) (p :: two_cell -> two_cell -> two_cell) | two_cat -> e, two_cat -> p where
+--   vertId :: forall (x :: zero_cell) (y :: zero_cell) (a :: one_cell). ObjectConstraint (two_cat x y) a => two_cat x y a a
+--   vertId = id @(two_cat x y)
+
+--   verticalComposition :: forall (x :: zero_cell) (y :: zero_cell) (a :: one_cell) (b :: one_cell) (c :: one_cell). two_cat x y b c -> two_cat x y a b -> two_cat x y a c
+--   verticalComposition = (.)
+
+--   -- horizontalId ::
+--   horizontalComposition :: forall (x :: zero_cell) (y :: zero_cell) (z :: zero_cell) (a :: one_cell) (b :: one_cell) (c :: one_cell). two_cat y z b c -> two_cat x y a b -> two_cat x z a c
+
+
+
+-- verticalComposition'
+--   :: forall two_cat e p x y a b c morphism.
+--   ( TwoCategoryProper two_cat e p
+--   , two_cat x y ~ morphism)
+--   =>  (b `morphism` c) -> (a `morphism` b) -> (a `morphism` c)
+-- verticalComposition' = verticalComposition
+
+-- horizontalComposition'
+--   :: forall two_cat e p x y z a b c morphism_x_y morphism_y_z morphism_x_z.
+--   ( TwoCategoryProper two_cat e p
+--   , two_cat x y ~ morphism_x_y
+--   , two_cat y z ~ morphism_y_z
+--   , two_cat x z ~ morphism_x_z)
+--   => (b `morphism_y_z` c) -> (a `morphism_x_y` b) -> (a `morphism_x_z` c)
+-- horizontalComposition' = horizontalComposition
+
+--   -- https://stackoverflow.com/questions/25210743/bicategories-in-haskell
+--   -- (.-) :: two_cat g g' d e -> two_cat f f' c d -> two_cat (g `p` f) (g' `p` f') c e
+--   -- (.-) = mu
+
+--   -- mu :: (a `m` a) `morphism` a
+--   -- nu :: e `morphism` a
+
+-- -- (.|) = verticalComposition
+-- -- (._) = horizontalComposition
+
+-- -- instance TwoCategoryProper Nat Identity Compose where
+
+-- type TwoCategoryProper :: Morphism k -> k -> (k -> k -> k) -> Constraint
+-- class (Functor TerminalCategory two_cat e {- Functor ProdCat two_cat comp -}) => TwoCategoryProper (two_cat :: Morphism (zero_cell -> zero_cell)) e comp | two_cat -> e, two_cat -> comp where
+
+type TwoCategoryProper :: ( forall i k. Morphism i -> Morphism k -> (i -> k) -> (i -> k) -> Type) -> idk -> (forall i j k. (j -> k) -> (i -> j) -> (i -> k)) -> Constraint
+class (forall {i} {k} (c :: Morphism i) (d :: Morphism k). Category (two_cat c d)) => TwoCategoryProper (two_cat :: forall i k. Morphism i -> Morphism k -> (i -> k) -> (i -> k) -> Type) el (comp :: forall i j k. (j -> k) -> (i -> j) -> (i -> k)) | two_cat -> el, two_cat -> comp where
+  -- type HomCat two_cat :: forall i k -> Morphism i -> Morphism k -> (i -> k) -> (i -> k) -> Type
+  -- type HomCat two_cat i k = two_cat
+
+  -- type OneCat :: Morphism i -> Morphism k ->
+
+  id1   :: two_cat c d f f
+  (.|)  :: two_cat c d g h -> two_cat c d f g -> two_cat c d f h
+  (.-)  :: forall {i} {j} {k} (c :: Morphism i) (d :: Morphism j) (e :: Morphism k) (g :: j -> k) (g' :: j -> k) (f :: i -> j) (f' :: i -> j). two_cat d e g g' -> two_cat c d f f' -> two_cat c e (comp g f) (comp g' f')
+  -- (.-)  :: two_cat d e g g' -> two_cat c d f f' -> two_cat c e (comp g f) (comp g' f')
+  -- (.-)  :: forall {i} {j} {k} (c :: Morphism i) (d :: Morphism j) (e :: Morphism k) (g :: j -> k) (g' :: j -> k) (f :: i -> j) (f' :: i -> j). two_cat (HomCat ) e g g' -> two_cat c d f f' -> two_cat c e (comp g f) (comp g' f')
+
+class TwoCat (one_cat :: Morphism k) where
+  -- type HomCat
+  id11 :: f a `one_cat` f a
+  (.||) :: (forall a. g a `one_cat` h a) -> (forall a. f a `one_cat` g a) -> (forall a. f a `one_cat` h a)
+  -- (.||) :: forall {j} (f :: j -> k) (g :: j -> k) (h :: j -> k). (forall a. g a `one_cat` h a) -> (forall a. f a `one_cat` g a) -> (forall a. f a `one_cat` h a)
+
+  (.--)  :: forall {i} {j} (c :: Morphism j) (g :: j -> k) (g' :: j -> k) (f :: i -> j) (f' :: i -> j). (forall (a :: j). g a `one_cat` g' a) -> (forall (a :: i). f a `c` f' a) -> (forall (a :: i). g (f a) `one_cat` g' (f' a))
+  -- (.--)  :: (forall a. g a `one_cat` g' a) -> (forall a. f a `c` f' a) -> (forall a. g (f a) `one_cat` g' (f' a))
+
+
+
 type HomCategory :: forall {k}. Morphism k -> k -> k -> (k -> k) -> (k -> k) -> Type
 newtype HomCategory morphism a b f g = MkHomSet (f a `morphism` g b)
 
 class (forall a b. Category (HomCategory one_morphism a b)) => TwoCategory one_morphism two_morphism | two_morphism -> one_morphism
+
+
+
+
+-- type TwoCateg :: (forall {i} {k}. Morphism (Src two_cat i) -> Morphism (Tgt two_cat k) -> (Src two_cat i -> Tgt two_cat k) -> (Src two_cat i -> Tgt two_cat k) -> Type) -> (forall {i} {k}. (Src two_cat i -> Tgt two_cat k) -> (Src two_cat i -> Tgt two_cat k)) -> (forall {i} {j} {k}. (Src two_cat j -> Tgt two_cat k) -> (Src two_cat i -> Tgt two_cat j) -> (Src two_cat i -> Tgt two_cat k)) -> Constraint
+-- -- type TwoCateg :: (forall {i} {k}. Morphism i -> Morphism k -> (i -> k) -> (i -> k) -> Type) -> (forall {i} {k}. (i -> k) -> (i -> k)) -> (forall {i} {j} {k}. (j -> k) -> (i -> j) -> (i -> k)) -> Constraint
+-- -- class (forall {i} {k} (c :: Morphism i) (d :: Morphism k). Category (two_cat c d)) => TwoCateg (two_cat :: forall i k. Morphism i -> Morphism k -> (i -> k) -> (i -> k) -> Type) el (comp :: forall i j k. (j -> k) -> (i -> j) -> (i -> k)) | two_cat -> el, two_cat -> comp where
+
+-- class (forall {i} {k} (c :: Morphism i) (d :: Morphism k). Category (two_cat c d)) => TwoCateg (two_cat) el (comp) | two_cat -> el, two_cat -> comp where
+--   -- type HomCat two_cat :: forall i k -> Morphism i -> Morphism k -> (i -> k) -> (i -> k) -> Type
+--   -- type HomCat two_cat i k = two_cat
+
+--   -- type OneCat :: Morphism i -> Morphism k ->
+
+
+--   id111   :: two_cat c d f f
+--   (.|||)  :: two_cat c d g h -> two_cat c d f g -> two_cat c d f h
+--   (.---)  :: forall {i} {j} {k} (c :: Morphism i) (d :: Morphism j) (e :: Morphism k) (g :: j -> k) (g' :: j -> k) (f :: i -> j) (f' :: i -> j). two_cat d e g g' -> two_cat c d f f' -> two_cat c e (comp g f) (comp g' f')
+
+
+
+
+-- TODO: enable quantified Category superclass constraint as well as quantified signatures by adding an  associated type family "ObjectKind" to the definition of the Category typeclass and use ObjectKind everywhere.
+-- type TwoCategg :: ( forall i k. Morphism i -> Morphism k -> (i -> k) -> (i -> k) -> Type) -> (forall i k. (i -> k) -> (i -> k)) -> (forall i j k. (j -> k) -> (i -> j) -> (i -> k)) -> Constraint
+class {- (forall {i} {k} (c :: Morphism i) (d :: Morphism k). Category (two_cat c d)) => -} TwoCategg (two_cat) el (comp) | two_cat -> el, two_cat -> comp where
+  id1111   :: two_cat c d f f
+  (.||||)  :: two_cat c d g h -> two_cat c d f g -> two_cat c d f h
+  --(.----)  :: forall {i} {j} {k} (c :: Morphism i) (d :: Morphism j) (e :: Morphism k) (g :: j -> k) (g' :: j -> k) (f :: i -> j) (f' :: i -> j). two_cat d e g g' -> two_cat c d f f' -> two_cat c e (comp g f) (comp g' f')
+  (.----)  :: two_cat d e g g' -> two_cat c d f f' -> two_cat c e (comp g f) (comp g' f')
+
+  type Object2Constraint two_cat :: Morphism i -> Constraint
+
+-- (.----) :: NatTrans (->) (Kleisli Maybe)
+
+instance TwoCategg 
+  (NatTrans :: Morphism (Type -> Type) -> Morphism (Type -> Type) -> ((Type -> Type) -> (Type -> Type)) -> ((Type -> Type) -> (Type -> Type)) -> Type)
+  (IdentityT :: (Type -> Type) -> (Type -> Type))
+  (ComposeT :: ((Type -> Type) -> (Type -> Type)) ->  ((Type -> Type) -> (Type -> Type)) ->  ((Type -> Type) -> (Type -> Type)))
+  where
+  id1111 = undefined -- Nat id
+  -- (.||||) = (.)
+  (.||||) (Nat f) (Nat g) = Nat (f . g)
+  (.----) :: forall c d e g g' f f'. NatTrans d e g g' -> NatTrans c d f f' -> NatTrans c e (ComposeT g f) (ComposeT g' f')
+  (.----) (Nat f) (Nat g) = undefined -- Nat (ComposeT . fff . getComposeT)
+    -- where
+    --   fff :: forall a i. g (f a) i -> g' (f' a) i
+    --   fff = undefined
+
+instance TwoCategg NatTrans Identity Compose
 
 
 
