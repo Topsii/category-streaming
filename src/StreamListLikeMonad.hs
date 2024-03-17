@@ -317,7 +317,7 @@ instance (Prelude.Monad m) => RelativeMonad Nat Nat IdentityT (StreamFlip m) whe
 
 
 instance (Prelude.Monad m) => MonoidInMonoidalCategory IdentityT ComposeT NatNat (StreamFlip m) where
-  mu = Nat (Nat (coerce (concats . maps getStream)))
+  mu = Nat (Nat (coerce (concats . maps coerce)))
   nu = Nat (Nat (coerce yields))
 
 instance (Prelude.Monad m) => StrictMonad IdentityT ComposeT Nat NatNat (StreamFlip m) where
