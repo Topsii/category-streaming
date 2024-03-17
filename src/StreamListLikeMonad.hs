@@ -183,7 +183,7 @@ type NatTrans :: forall {k} {i}. Morphism k -> (i -> k) -> (i -> k) -> Type
 data NatTrans morphism f g where
   -- Nat :: Functor morphism morphism f => { runNat :: forall a. morphism (f a) (g a) } -> NatTrans morphism f g
   Nat :: { runNat :: forall a. ObjectConstraint morphism a => morphism (f a) (g a) } -> NatTrans morphism f g
-      
+
 instance Category morphism => Category (NatTrans (morphism :: Morphism k) :: (k -> k) -> (k -> k) -> Type) where
   type ObjectConstraint (NatTrans morphism) = Functor morphism morphism
   id = Nat id
@@ -234,6 +234,7 @@ fmap2 f = runNat (fmap @Nat @Nat @f @a @b (Nat f))
 instance MonoidalCategory IdentityT ComposeT NatNat where
   rassoc = Nat (Nat (ComposeT . fmap2 ComposeT . getComposeT . getComposeT))
   lassoc = Nat (Nat (ComposeT . ComposeT . fmap2 getComposeT . getComposeT))
+  rleftunit :: ObjectConstraint NatNat a => NatNat (ComposeT IdentityT a) a
   rleftunit = Nat (Nat (runIdentityT . getComposeT))
   lleftunit = Nat (Nat (ComposeT . IdentityT))
   rrightunit = Nat (Nat (fmap2 runIdentityT . getComposeT))
@@ -313,11 +314,14 @@ instance (Prelude.Monad m) => Functor Nat Nat (StreamFlip m) where
 instance (Prelude.Monad m) => RelativeMonad Nat Nat IdentityT (StreamFlip m) where
   pure = Nat (coerce yields)
   (=<<) (Nat f) = Nat (coerce (concats @_ @m . maps @m @_ @(Stream _ m) (coerce f)))
- 
 
-instance MonoidInMonoidalCategory IdentityT ComposeT NatNat (StreamFlip m)
-instance StrictMonad IdentityT ComposeT Nat NatNat (StreamFlip m)
- 
+
+instance (Prelude.Monad m) => MonoidInMonoidalCategory IdentityT ComposeT NatNat (StreamFlip m) where
+  mu = Nat (Nat (coerce (concats . maps getStream)))
+  nu = Nat (Nat (coerce yields))
+
+instance (Prelude.Monad m) => StrictMonad IdentityT ComposeT Nat NatNat (StreamFlip m) where
+
 -- #########################################
 -- definitions for Stream
 -- #########################################
