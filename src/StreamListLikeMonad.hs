@@ -177,19 +177,19 @@ instance Vacuous c a
 -- #########################################
  
 
-type Nat :: (Type -> Type) -> (Type -> Type) -> Type
+type Nat :: Morphism (Type -> Type)
 type Nat = NatTrans (->)
 
-type NatNat :: ((Type -> Type) -> (Type -> Type)) -> ((Type -> Type) -> (Type -> Type)) -> Type
+type NatNat :: Morphism ((Type -> Type) -> (Type -> Type))
 type NatNat = NatTrans Nat
 
-type NatTrans :: forall {i} {k}. Morphism k -> (i -> k) -> (i -> k) -> Type
+type NatTrans :: forall {i} {k}. Morphism k -> Morphism (i -> k)
 data NatTrans morphism f g where
   -- Nat :: (Functor src_morphism tgt_morphism f, Functor src_morphism tgt_morphism g) => { runNat :: forall a. ObjectConstraint src_morphism a => tgt_morphism (f a) (g a) } -> NatTrans src_morphism tgt_morphism f g
   Nat :: Functor morphism morphism f => { runNat :: forall a. ObjectConstraint morphism a => morphism (f a) (g a) } -> NatTrans morphism f g
   -- Nat :: { runNat :: forall a. ObjectConstraint morphism a => morphism (f a) (g a) } -> NatTrans morphism f g
 
-instance (Category morphism) => Category (NatTrans (morphism :: Morphism k) :: (k -> k) -> (k -> k) -> Type) where
+instance (Category morphism) => Category (NatTrans (morphism :: Morphism k) :: Morphism (k -> k)) where
   type ObjectConstraint (NatTrans morphism) = Functor morphism morphism
   id = Nat id
   (.) (Nat f) (Nat g) = Nat (f . g)
@@ -254,7 +254,7 @@ instance Functor (->) (->) (f (g a)) => Functor (->) (->) (ComposeT f g a) where
   fmap = coerce (fmap @(->) @(->) @(f (g a)) @x @y)
  
 instance (Functor Nat Nat f, Functor Nat Nat g) => Functor Nat Nat (ComposeT f g) where
-  fmap (Nat f) = Nat (\(ComposeT x) -> ComposeT (fmap2 (fmap2  f) x))
+  fmap (Nat f) = Nat (\(ComposeT x) -> ComposeT (fmap2 (fmap2 f) x))
 
 
 -- #########################################
