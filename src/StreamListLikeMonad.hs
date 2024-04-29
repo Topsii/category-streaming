@@ -179,19 +179,19 @@ instance Vacuous c a
  
 
 type Nat :: Morphism (Type -> Type)
-type Nat = NatTrans (->)
+type Nat = NatTrans (->) (->)
 
 type NatNat :: Morphism ((Type -> Type) -> (Type -> Type))
-type NatNat = NatTrans Nat
+type NatNat = NatTrans Nat Nat
 
-type NatTrans :: forall {i} {k}. Morphism k -> Morphism (i -> k)
-data NatTrans morphism f g where
+type NatTrans :: forall {i} {k}. Morphism i -> Morphism k -> Morphism (i -> k)
+data NatTrans src_morphism tgt_morphism f g where
   -- Nat :: (Functor src_morphism tgt_morphism f, Functor src_morphism tgt_morphism g) => { runNat :: forall a. ObjectConstraint src_morphism a => tgt_morphism (f a) (g a) } -> NatTrans src_morphism tgt_morphism f g
-  Nat :: Functor morphism morphism f => { runNat :: forall a. ObjectConstraint morphism a => morphism (f a) (g a) } -> NatTrans morphism f g
+  Nat :: Functor src_morphism tgt_morphism f => { runNat :: forall a. ObjectConstraint src_morphism a => tgt_morphism (f a) (g a) } -> NatTrans src_morphism tgt_morphism f g
   -- Nat :: { runNat :: forall a. ObjectConstraint morphism a => morphism (f a) (g a) } -> NatTrans morphism f g
 
-instance (Category morphism) => Category (NatTrans (morphism :: Morphism k) :: Morphism (k -> k)) where
-  type ObjectConstraint (NatTrans morphism) = Functor morphism morphism
+instance (Category src_morphism, Category tgt_morphism) => Category (NatTrans (src_morphism :: Morphism i) (tgt_morphism :: Morphism k) :: Morphism (i -> k)) where
+  type ObjectConstraint (NatTrans src_morphism tgt_morphism) = Functor src_morphism tgt_morphism
   id = Nat id
   (.) (Nat f) (Nat g) = Nat (f . g)
 
