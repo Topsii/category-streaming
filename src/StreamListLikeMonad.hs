@@ -49,7 +49,18 @@ class Category morphism where
   type ObjectConstraint morphism :: i -> Constraint
   id :: ObjectConstraint morphism a => a `morphism` a
   (.) :: (b `morphism` c) -> (a `morphism` b) -> (a `morphism` c)
- 
+
+type Functor :: forall {i} {j}. Morphism i -> Morphism j -> (i -> j) -> Constraint
+class
+    ( Category src_morphism
+    , Category tgt_morphism
+    -- , forall a. ObjectConstraint src_morphism a => ObjectConstraint tgt_morphism (f a)
+    -- the line above does not work, see https://gitlab.haskell.org/ghc/ghc/-/issues/16123 , instead we use a workaround in the line below:
+    , forall objConstr a. (objConstr ~ ObjectConstraint tgt_morphism, ObjectConstraint src_morphism a) => objConstr (f a)
+    ) 
+    => Functor (src_morphism) tgt_morphism f | f -> src_morphism tgt_morphism where
+  fmap :: (ObjectConstraint src_morphism a) => (a `src_morphism` b) -> (f a `tgt_morphism` f b)
+
 type TensorProduct k = k -> k -> k
 type TensorUnit k = k
 
@@ -137,19 +148,6 @@ class
   --     gg = coerce (nu @e @p @two_morphism @m)
   default returN :: forall a. (ObjectConstraint one_morphism a, ObjectConstraint one_morphism (m a), ObjectConstraint one_morphism (e a), ObjectConstraint two_morphism m, ObjectConstraint two_morphism e) => (a `one_morphism` m a)
   returN = renriched (Proxy @two_morphism) nu . rvertId (Proxy @two_morphism)
-
-
-
-type Functor :: forall {i} {j}. Morphism i -> Morphism j -> (i -> j) -> Constraint
-class
-    ( Category src_morphism
-    , Category tgt_morphism
-    -- , forall a. ObjectConstraint src_morphism a => ObjectConstraint tgt_morphism (f a)
-    -- the line above does not work, see https://gitlab.haskell.org/ghc/ghc/-/issues/16123 , instead we use a workaround in the line below:
-    , forall objConstr a. (objConstr ~ ObjectConstraint tgt_morphism, ObjectConstraint src_morphism a) => objConstr (f a)
-    ) 
-    => Functor (src_morphism) tgt_morphism f | f -> src_morphism tgt_morphism where
-  fmap :: (ObjectConstraint src_morphism a) => (a `src_morphism` b) -> (f a `tgt_morphism` f b)
  
  
 -- https://ncatlab.org/nlab/show/relative+monad#idea
