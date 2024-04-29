@@ -16,6 +16,7 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE DataKinds #-}
 
 module StreamListLikeMonad where
 import Prelude (IO, putStrLn, undefined)
@@ -315,6 +316,9 @@ instance (Prelude.Monad m) => RelativeMonad Nat Nat IdentityT (StreamFlip m) whe
   pure = Nat (coerce yields)
   (=<<) (Nat f) = Nat (coerce (concats @_ @m . maps @m @_ @(Stream _ m) (coerce f)))
 
+instance (Functor (->) (->) f, Prelude.Monad m) => MonoidInMonoidalCategory Identity Compose Nat (StreamFlip m f) where
+  mu = Nat (MkStreamFlip . joinStream . fmap getStream . getStream . getCompose)
+  nu = Nat (MkStreamFlip . Return . runIdentity)
 
 instance (Prelude.Monad m) => MonoidInMonoidalCategory IdentityT ComposeT NatNat (StreamFlip m) where
   mu = Nat (Nat (coerce (concats . maps coerce)))
@@ -366,6 +370,9 @@ stream `bindStream` f =
     Effect m  -> Effect (Prelude.fmap loop m)
     Return r  -> f r
 {-# INLINABLE bindStream #-}
+
+joinStream :: (Prelude.Monad m, Functor (->) (->) f) => Stream f m (Stream f m r) -> Stream f m r
+joinStream stream = bindStream stream id
  
 yields :: (Prelude.Monad m, Functor (->) (->) f) => f r -> Stream f m r
 yields fr = Step (fmap Return fr)
