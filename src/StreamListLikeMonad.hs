@@ -72,7 +72,9 @@ class
     , forall objConstr a b. (objConstr ~ ObjectConstraint tgt_morphism, ObjectConstraint src_morphism a, ObjectConstraint src_morphism b) => objConstr (p a b)
     )
     => Bifunctor src_morphism tgt_morphism p where
+
   {-# MINIMAL bimap | first #-}
+
   bimap 
     :: ( ObjectConstraint src_morphism a
        , ObjectConstraint src_morphism b
@@ -81,8 +83,9 @@ class
        )
     => (a `src_morphism` b) -> (c `src_morphism` d) -> p a c `tgt_morphism` p b d
   bimap f g = first f . fmap g
+
   first
-    :: forall a b c. ( ObjectConstraint src_morphism a
+    :: ( ObjectConstraint src_morphism a
        , ObjectConstraint src_morphism b
        , ObjectConstraint src_morphism c
        )
