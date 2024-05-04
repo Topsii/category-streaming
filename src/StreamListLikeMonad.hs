@@ -190,19 +190,18 @@ class
   --     gg = coerce (nu @e @p @two_morphism @m)
   default returN :: forall a. (ObjectConstraint one_morphism a, ObjectConstraint one_morphism (m a), ObjectConstraint one_morphism (e a), ObjectConstraint two_morphism m, ObjectConstraint two_morphism e) => (a `one_morphism` m a)
   returN = renriched (Proxy @two_morphism) nu . rvertId (Proxy @two_morphism)
- 
- 
+
 -- https://ncatlab.org/nlab/show/relative+monad#idea
 type RelativeMonad :: forall {i} {j}. Morphism i -> Morphism j -> (i -> j) -> (i -> j) -> Constraint
 class (Functor src_morphism tgt_morphism j, Functor src_morphism tgt_morphism m) => RelativeMonad src_morphism tgt_morphism j m | m -> j where
   pure :: ObjectConstraint src_morphism a => j a `tgt_morphism` m a
   (=<<) :: (ObjectConstraint src_morphism a, ObjectConstraint src_morphism b) => (j a `tgt_morphism` m b) -> (m a `tgt_morphism` m b)
- 
-  
+
+
 -- #########################################
--- definition of the category instance for the normal function type (->)
+-- instances for the the normal function type (->)
 -- #########################################
- 
+
 instance Category (->) where
   type ObjectConstraint (->) = Vacuous (->)
   id = Prelude.id
@@ -211,12 +210,11 @@ instance Category (->) where
 type Vacuous :: Morphism i -> i -> Constraint
 class Vacuous c a
 instance Vacuous c a
- 
- 
+
+
 -- #########################################
 -- definition of natural transformation (Nat) and its Category instance
 -- #########################################
- 
 
 type Nat :: Morphism (Type -> Type)
 type Nat = NatTrans (->) (->)
@@ -235,19 +233,6 @@ instance (Category src_morphism, Category tgt_morphism) => Category (NatTrans (s
   id = Nat id
   (.) (Nat f) (Nat g) = Nat (f . g)
 
-instance Functor (->) (->) Identity where
-  fmap f (Identity x) = Identity (f x)
-
-instance (Functor (->) (->) f, Functor (->) (->) g) => Functor (->) (->) (Compose f g) where
-  fmap f (Compose x) = Compose (fmap (fmap f) x)
-
-instance Functor (->) (->) t => Functor Nat Nat (Compose t) where
-  fmap (Nat f) = Nat (Compose . fmap f . getCompose)
-
-instance Bifunctor Nat Nat Nat Compose where
-  bimap (Nat f) (Nat g) = Nat (Compose . f . fmap g . getCompose)
-  first (Nat f) = Nat (Compose . f . getCompose)
-
 instance MonoidalCategory Identity Compose Nat where
   -- in case of the assoc and rightunit conversions we need to utilize the Functor instance of the most outer functor, because the role of its type argument could be nominal
   rassoc = Nat (Compose . fmap Compose . getCompose . getCompose)
@@ -265,19 +250,36 @@ instance VertComp Identity Compose (->) Nat where
   lenriched _ f = Nat f
   renriched _ f = runNat f
 
+ 
+-- #########################################
+-- instances for Compose
+-- #########################################
+
+instance (Functor (->) (->) f, Functor (->) (->) g) => Functor (->) (->) (Compose f g) where
+  fmap f (Compose x) = Compose (fmap (fmap f) x)
+
+instance Functor (->) (->) t => Functor Nat Nat (Compose t) where
+  fmap (Nat f) = Nat (Compose . fmap f . getCompose)
+
+instance Bifunctor Nat Nat Nat Compose where
+  bimap (Nat f) (Nat g) = Nat (Compose . f . fmap g . getCompose)
+  first (Nat f) = Nat (Compose . f . getCompose)
+
+
+-- #########################################
+-- instances for Identity
+-- #########################################
+ 
+instance Functor (->) (->) Identity where
+  fmap f (Identity x) = Identity (f x)
+
+
 -- #########################################
 -- definition of transformations of natural transformation (NatNat) and its Category instance
 -- #########################################
  
 fmap2 :: forall f a b. (Functor Nat Nat f, Functor (->) (->) a) => (forall x. a x -> b x) -> (forall x. f a x -> f b x)
 fmap2 f = runNat (fmap @Nat @Nat @f @a @b (Nat f))
-
-instance Functor Nat Nat z => Functor NatNat NatNat (ComposeT z) where
-  fmap (Nat f)  = Nat (Nat (ComposeT . fmap2 (runNat f) . getComposeT))
-
-instance Bifunctor NatNat NatNat NatNat ComposeT where
-  bimap (Nat f) (Nat g) = Nat (Nat (ComposeT . runNat f . fmap2 (runNat g) . getComposeT))
-  first (Nat f) = Nat (Nat (ComposeT . runNat f . getComposeT))
 
 instance MonoidalCategory IdentityT ComposeT NatNat where
   rassoc = Nat (Nat (ComposeT . fmap2 ComposeT . getComposeT . getComposeT))
@@ -286,7 +288,6 @@ instance MonoidalCategory IdentityT ComposeT NatNat where
   lleftunit = Nat (Nat (ComposeT . IdentityT))
   rrightunit = Nat (Nat (fmap2 runIdentityT . getComposeT))
   lrightunit = Nat (Nat (ComposeT . fmap2 IdentityT))
-
 
 instance VertComp IdentityT ComposeT Nat NatNat where
   lvertComp _ = Nat getComposeT
@@ -297,8 +298,6 @@ instance VertComp IdentityT ComposeT Nat NatNat where
   -- renriched _ f = runNat f
 
 
-
- 
 -- #########################################
 -- instances for ComposeT
 -- #########################################
@@ -309,6 +308,13 @@ instance Functor (->) (->) (f (g a)) => Functor (->) (->) (ComposeT f g a) where
  
 instance (Functor Nat Nat f, Functor Nat Nat g) => Functor Nat Nat (ComposeT f g) where
   fmap (Nat f) = Nat (\(ComposeT x) -> ComposeT (fmap2 (fmap2 f) x))
+
+instance Functor Nat Nat z => Functor NatNat NatNat (ComposeT z) where
+  fmap (Nat f) = Nat (Nat (ComposeT . fmap2 (runNat f) . getComposeT))
+
+instance Bifunctor NatNat NatNat NatNat ComposeT where
+  bimap (Nat f) (Nat g) = Nat (Nat (ComposeT . runNat f . fmap2 (runNat g) . getComposeT))
+  first (Nat f) = Nat (Nat (ComposeT . runNat f . getComposeT))
 
 
 -- #########################################
@@ -321,8 +327,6 @@ instance Functor Nat Nat IdentityT where
  
 instance Functor (->) (->) f => Functor (->) (->) (IdentityT f) where
   fmap func = coerce (fmap @(->) @(->) @f func)
-  
-
 
 
 -- #########################################
@@ -378,6 +382,7 @@ instance (Prelude.Monad m) => MonoidInMonoidalCategory IdentityT ComposeT NatNat
   nu = Nat (Nat (coerce yields))
 
 instance (Prelude.Monad m) => StrictMonad IdentityT ComposeT Nat NatNat (StreamFlip m) where
+
 
 -- #########################################
 -- definitions for Stream
