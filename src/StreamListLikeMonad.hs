@@ -58,14 +58,52 @@ class
     -- the line above does not work, see https://gitlab.haskell.org/ghc/ghc/-/issues/16123 , instead we use a workaround in the line below:
     , forall objConstr a. (objConstr ~ ObjectConstraint tgt_morphism, ObjectConstraint src_morphism a) => objConstr (f a)
     ) 
-    => Functor (src_morphism) tgt_morphism f | f -> src_morphism tgt_morphism where
+    => Functor src_morphism tgt_morphism f | f -> src_morphism tgt_morphism where
   fmap :: (ObjectConstraint src_morphism a) => (a `src_morphism` b) -> (f a `tgt_morphism` f b)
+
+
+type Bifunctor :: Morphism i -> Morphism j -> (i -> i -> j) -> Constraint
+class
+    ( Category src_morphism
+    , Category tgt_morphism
+    , forall z. ObjectConstraint src_morphism z => Functor src_morphism tgt_morphism (p z)
+    -- , forall a b. (ObjectConstraint src_morphism a, ObjectConstraint src_morphism b) => ObjectConstraint tgt_morphism (p a b)
+    -- the line above does not work, see https://gitlab.haskell.org/ghc/ghc/-/issues/16123 , instead we use a workaround in the line below:
+    , forall objConstr a b. (objConstr ~ ObjectConstraint tgt_morphism, ObjectConstraint src_morphism a, ObjectConstraint src_morphism b) => objConstr (p a b)
+    )
+    => Bifunctor src_morphism tgt_morphism p where
+  {-# MINIMAL bimap | first #-}
+  bimap 
+    :: ( ObjectConstraint src_morphism a
+       , ObjectConstraint src_morphism b
+       , ObjectConstraint src_morphism c
+       , ObjectConstraint src_morphism d
+       )
+    => (a `src_morphism` b) -> (c `src_morphism` d) -> p a c `tgt_morphism` p b d
+  bimap f g = first f . fmap g
+  first
+    :: forall a b c. ( ObjectConstraint src_morphism a
+       , ObjectConstraint src_morphism b
+       , ObjectConstraint src_morphism c
+       )
+    => (a `src_morphism` b) -> p a c `tgt_morphism` p b c
+  first f = bimap f id
+
+second
+  :: ( Bifunctor src_morphism tgt_morphism p
+     , ObjectConstraint src_morphism a
+     , ObjectConstraint src_morphism c
+     , ObjectConstraint src_morphism d
+     )
+  => (c `src_morphism` d) -> p a c `tgt_morphism` p a d
+second = fmap
+
 
 type TensorProduct k = k -> k -> k
 type TensorUnit k = k
 
 type MonoidalCategory :: forall {k}. TensorUnit k -> TensorProduct k -> Morphism k -> Constraint
-class ({-Bi FunctorOf morphism m,-} Category morphism) => MonoidalCategory e m morphism | morphism -> e, morphism -> m where
+class ( Bifunctor morphism morphism m, Category morphism) => MonoidalCategory e m morphism | morphism -> e, morphism -> m where
     rassoc :: (ObjectConstraint morphism a, ObjectConstraint morphism b, ObjectConstraint morphism c) => ((a `m` b) `m` c) `morphism` (a `m` (b `m` c))
     lassoc :: (ObjectConstraint morphism a, ObjectConstraint morphism b, ObjectConstraint morphism c) => (a `m` (b `m` c)) `morphism` ((a `m` b) `m` c)
     rleftunit :: ObjectConstraint morphism a => (e `m` a) `morphism` a
@@ -199,6 +237,13 @@ instance Functor (->) (->) Identity where
 instance (Functor (->) (->) f, Functor (->) (->) g) => Functor (->) (->) (Compose f g) where
   fmap f (Compose x) = Compose (fmap (fmap f) x)
 
+instance Functor (->) (->) t => Functor Nat Nat (Compose t) where
+  fmap (Nat f) = Nat (Compose . fmap f . getCompose)
+
+instance Bifunctor Nat Nat Compose where
+  bimap (Nat f) (Nat g) = Nat (Compose . f . fmap g . getCompose)
+  first (Nat f) = Nat (Compose . f . getCompose)
+
 instance MonoidalCategory Identity Compose Nat where
   -- in case of the assoc and rightunit conversions we need to utilize the Functor instance of the most outer functor, because the role of its type argument could be nominal
   rassoc = Nat (Compose . fmap Compose . getCompose . getCompose)
@@ -223,10 +268,16 @@ instance VertComp Identity Compose (->) Nat where
 fmap2 :: forall f a b. (Functor Nat Nat f, Functor (->) (->) a) => (forall x. a x -> b x) -> (forall x. f a x -> f b x)
 fmap2 f = runNat (fmap @Nat @Nat @f @a @b (Nat f))
 
+instance Functor Nat Nat z => Functor NatNat NatNat (ComposeT z) where
+  fmap (Nat f)  = Nat (Nat (ComposeT . fmap2 (runNat f) . getComposeT))
+
+instance Bifunctor NatNat NatNat ComposeT where
+  bimap (Nat f) (Nat g) = Nat (Nat (ComposeT . runNat f . fmap2 (runNat g) . getComposeT))
+  first (Nat f) = Nat (Nat (ComposeT . runNat f . getComposeT))
+
 instance MonoidalCategory IdentityT ComposeT NatNat where
   rassoc = Nat (Nat (ComposeT . fmap2 ComposeT . getComposeT . getComposeT))
   lassoc = Nat (Nat (ComposeT . ComposeT . fmap2 getComposeT . getComposeT))
-  rleftunit :: ObjectConstraint NatNat a => NatNat (ComposeT IdentityT a) a
   rleftunit = Nat (Nat (runIdentityT . getComposeT))
   lleftunit = Nat (Nat (ComposeT . IdentityT))
   rrightunit = Nat (Nat (fmap2 runIdentityT . getComposeT))
