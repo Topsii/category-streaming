@@ -21,6 +21,7 @@
 module StreamListLikeMonad where
 import Prelude (IO, putStrLn, undefined)
 import Prelude qualified
+import Data.Bifunctor qualified as Base.Bifunctor
 import Data.Coerce
 import Data.Kind (Constraint, Type)
 import Streaming.Internal hiding (concats, maps, yields)
@@ -33,6 +34,7 @@ import Data.Maybe (Maybe)
 import Control.Monad qualified (join) 
 import qualified Control.Applicative
 import Data.Type.Equality ( type (~) ) 
+import Data.Either (Either)
 
 someFunc :: IO ()
 someFunc = putStrLn "someFunc"
@@ -334,6 +336,28 @@ instance Functor Nat Nat IdentityT where
 instance Functor (->) (->) f => Functor (->) (->) (IdentityT f) where
   fmap func = coerce (fmap @(->) @(->) @f func)
 
+
+-- #########################################
+-- instances for bifunctors in the category (->) such as (,) or Either
+-- #########################################
+
+instance Functor (->) (->) ((,) a) where
+  fmap = Base.Bifunctor.second
+
+instance Functor (->) (NatTrans (->) (->)) (,) where
+  fmap f = Nat (Base.Bifunctor.first f)
+
+instance Bifunctor (->) (->) (->) (,) where
+  bimap = Base.Bifunctor.bimap
+
+instance Functor (->) (->) (Either a) where
+  fmap = Base.Bifunctor.second
+
+instance Functor (->) (NatTrans (->) (->)) Either where
+  fmap f = Nat (Base.Bifunctor.first f)
+
+instance Bifunctor (->) (->) (->) Either where
+  bimap = Base.Bifunctor.bimap
 
 -- #########################################
 -- instances for familiar Monads such as Maybe or IO
