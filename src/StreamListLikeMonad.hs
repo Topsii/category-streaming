@@ -121,8 +121,8 @@ class ( Bifunctor morphism morphism morphism m, Category morphism) => MonoidalCa
     rrightunit :: ObjectConstraint morphism a => (a `m` e) `morphism` a
     lrightunit :: ObjectConstraint morphism a => a `morphism` (a `m` e)
     
-type MonoidInMonoidalCategory :: forall {k}. k -> (k -> k -> k) -> Morphism k -> k -> Constraint
-class (MonoidalCategory morphism m e) => MonoidInMonoidalCategory e m morphism a | a -> m morphism where
+type MonoidInMonoidalCategory :: forall {k}. Morphism k -> (k -> k -> k) -> k -> k -> Constraint
+class (MonoidalCategory morphism m e) => MonoidInMonoidalCategory morphism m e a | a -> m morphism where
   mu :: (a `m` a) `morphism` a
   nu :: e `morphism` a
 
@@ -133,7 +133,7 @@ type VertIdentity a = a -> a
 -- a Monad is a monoid in the category of endofunctors where the 
 -- tensor product @m@ is composition and the tensor unit @e@ is identity
 type Monad :: forall {k}. VertIdentity k -> VertComposition k k k -> Morphism (k -> k) -> (k -> k) -> Constraint
-type Monad e m morphism a = MonoidInMonoidalCategory e m morphism a
+type Monad e m morphism a = MonoidInMonoidalCategory morphism m e a
 -- type Monad :: VertIdentity k -> VertComposition k k k -> Morphism (k -> k) -> (k -> k) -> Constraint
 -- class MonoidInMonoidalCategory e m morphism a => Monad e m morphism a where
 
@@ -482,7 +482,7 @@ instance MonoidalCategory Nat Sum Void1 where
 
 instance Prelude.Monad m => Functor (->) (->) (Control.Applicative.WrappedMonad m) where
   fmap = Prelude.fmap . coerce
-instance Prelude.Monad m => MonoidInMonoidalCategory Identity Compose Nat (Control.Applicative.WrappedMonad m) where
+instance Prelude.Monad m => MonoidInMonoidalCategory Nat Compose Identity (Control.Applicative.WrappedMonad m) where
   mu = Nat (Control.Monad.join . coerce)
   nu = Nat (Prelude.return . coerce)
 
@@ -490,14 +490,14 @@ instance Prelude.Monad m => StrictMonad Identity Compose (->) Nat (Control.Appli
 
 instance Functor (->) (->) IO where
   fmap = Prelude.fmap . coerce
-instance MonoidInMonoidalCategory Identity Compose Nat IO where
+instance MonoidInMonoidalCategory Nat Compose Identity IO where
   mu = Nat (Control.Monad.join . coerce)
   nu = Nat (Prelude.return . coerce)
 instance StrictMonad Identity Compose (->) Nat IO
 
 instance Functor (->) (->) Maybe where
   fmap = Prelude.fmap . coerce
-instance MonoidInMonoidalCategory Identity Compose Nat Maybe where
+instance MonoidInMonoidalCategory Nat Compose Identity Maybe where
   mu = Nat (Control.Monad.join . coerce)
   nu = Nat (Prelude.return . coerce)
 instance StrictMonad Identity Compose (->) Nat Maybe
@@ -520,11 +520,11 @@ instance (Prelude.Monad m) => RelativeMonad Nat Nat IdentityT (StreamFlip m) whe
   pure = Nat (coerce yields)
   (=<<) (Nat f) = Nat (coerce (concats @_ @m . maps @m @_ @(Stream _ m) (coerce f)))
 
-instance (Functor (->) (->) f, Prelude.Monad m) => MonoidInMonoidalCategory Identity Compose Nat (StreamFlip m f) where
+instance (Functor (->) (->) f, Prelude.Monad m) => MonoidInMonoidalCategory Nat Compose Identity (StreamFlip m f) where
   mu = Nat (MkStreamFlip . joinStream . fmap getStream . getStream . getCompose)
   nu = Nat (MkStreamFlip . Return . runIdentity)
 
-instance (Prelude.Monad m) => MonoidInMonoidalCategory IdentityT ComposeT NatNat (StreamFlip m) where
+instance (Prelude.Monad m) => MonoidInMonoidalCategory NatNat ComposeT IdentityT (StreamFlip m) where
   mu = Nat (Nat (coerce (concats . maps coerce)))
   nu = Nat (Nat (coerce yields))
 
