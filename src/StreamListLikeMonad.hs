@@ -67,14 +67,13 @@ class
     ( Category src1_morphism
     , Category src2_morphism
     , Category tgt_morphism
-    , forall z. ObjectConstraint src1_morphism z => Functor src2_morphism tgt_morphism (p z)
+    , Functor src1_morphism (NatTrans src2_morphism tgt_morphism) p -- fmap = first
+    , forall z. ObjectConstraint src1_morphism z => Functor src2_morphism tgt_morphism (p z) -- fmap = second
     -- , forall a b. (ObjectConstraint src_morphism a, ObjectConstraint src_morphism b) => ObjectConstraint tgt_morphism (p a b)
     -- the line above does not work, see https://gitlab.haskell.org/ghc/ghc/-/issues/16123 , instead we use a workaround in the line below:
     , forall objConstr a b. (objConstr ~ ObjectConstraint tgt_morphism, ObjectConstraint src1_morphism a, ObjectConstraint src2_morphism b) => objConstr (p a b)
     )
     => Bifunctor src1_morphism src2_morphism tgt_morphism p | p -> src1_morphism src2_morphism tgt_morphism where
-
-  {-# MINIMAL bimap | first #-}
 
   bimap 
     :: ( ObjectConstraint src1_morphism a
@@ -83,7 +82,7 @@ class
        , ObjectConstraint src2_morphism d
        )
     => (a `src1_morphism` b) -> (c `src2_morphism` d) -> p a c `tgt_morphism` p b d
-  bimap f g = first f . fmap g
+  bimap f g = (runNat . fmap) f . fmap g
 
   first
     :: ( ObjectConstraint src1_morphism a
@@ -91,7 +90,7 @@ class
        , ObjectConstraint src2_morphism c
        )
     => (a `src1_morphism` b) -> p a c `tgt_morphism` p b c
-  first f = bimap f id
+  first = runNat . fmap
 
 second
   :: ( Bifunctor src1_morphism src2_morphism tgt_morphism p
@@ -221,6 +220,7 @@ type Nat = NatTrans (->) (->)
 
 type NatNat :: Morphism ((Type -> Type) -> (Type -> Type))
 type NatNat = NatTrans Nat Nat
+type NatNatNat = NatTrans NatNat NatNat
 
 type NatTrans :: forall {i} {k}. Morphism i -> Morphism k -> Morphism (i -> k)
 data NatTrans src_morphism tgt_morphism f g where
@@ -260,6 +260,9 @@ instance (Functor (->) (->) f, Functor (->) (->) g) => Functor (->) (->) (Compos
 
 instance Functor (->) (->) t => Functor Nat Nat (Compose t) where
   fmap (Nat f) = Nat (Compose . fmap f . getCompose)
+
+instance Functor Nat NatNat Compose where
+  fmap (Nat f) = Nat (Nat (Compose . f . getCompose))
 
 instance Bifunctor Nat Nat Nat Compose where
   bimap (Nat f) (Nat g) = Nat (Compose . f . fmap g . getCompose)
@@ -311,6 +314,9 @@ instance (Functor Nat Nat f, Functor Nat Nat g) => Functor Nat Nat (ComposeT f g
 
 instance Functor Nat Nat z => Functor NatNat NatNat (ComposeT z) where
   fmap (Nat f) = Nat (Nat (ComposeT . fmap2 (runNat f) . getComposeT))
+
+instance Functor NatNat NatNatNat ComposeT where
+  fmap (Nat f) = Nat (Nat (Nat (ComposeT . runNat f . getComposeT)))
 
 instance Bifunctor NatNat NatNat NatNat ComposeT where
   bimap (Nat f) (Nat g) = Nat (Nat (ComposeT . runNat f . fmap2 (runNat g) . getComposeT))
