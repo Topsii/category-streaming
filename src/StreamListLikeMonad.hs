@@ -350,6 +350,7 @@ instance Functor (->) (NatTrans (->) (->)) (,) where
 instance Bifunctor (->) (->) (->) (,) where
   bimap = Base.Bifunctor.bimap
 
+
 instance Functor (->) (->) (Either a) where
   fmap = Base.Bifunctor.second
 
@@ -358,6 +359,7 @@ instance Functor (->) (NatTrans (->) (->)) Either where
 
 instance Bifunctor (->) (->) (->) Either where
   bimap = Base.Bifunctor.bimap
+
 
 -- #########################################
 -- instances for familiar Monads such as Maybe or IO
