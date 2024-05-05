@@ -18,6 +18,7 @@
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE EmptyCase #-}
 
 module StreamListLikeMonad where
 import Prelude (IO, putStrLn, undefined)
@@ -37,6 +38,8 @@ import qualified Control.Applicative
 import Data.Type.Equality ( type (~) ) 
 import Data.Either (Either (Left, Right))
 import Data.Void (Void, absurd)
+import Data.Functor.Product (Product (Pair))
+import Data.Functor.Sum (Sum (InL, InR))
 
 someFunc :: IO ()
 someFunc = putStrLn "someFunc"
@@ -332,15 +335,14 @@ instance Bifunctor NatNat NatNat NatNat ComposeT where
 -- #########################################
  
 instance Functor Nat Nat IdentityT where
-  fmap :: forall a b. Nat a b -> Nat (IdentityT a) (IdentityT b)
-  fmap (Nat f) = Nat (IdentityT . f . runIdentityT :: forall x. IdentityT a x -> IdentityT b x)
+  fmap (Nat f) = Nat (IdentityT . f . runIdentityT)
  
 instance Functor (->) (->) f => Functor (->) (->) (IdentityT f) where
   fmap func = coerce (fmap @(->) @(->) @f func)
 
 
 -- #########################################
--- monoidal category instances for (,) and Either in the category (->)
+-- monoidal category instances for (,) in the category (->)
 -- #########################################
 
 instance Functor (->) (->) ((,) a) where
@@ -351,6 +353,7 @@ instance Functor (->) Nat (,) where
 
 instance Bifunctor (->) (->) (->) (,) where
   bimap = Base.Bifunctor.bimap
+  first = Base.Bifunctor.first
 
 instance MonoidalCategory () (,) (->) where
   rassoc ((a, b), c) = (a, (b, c))
@@ -361,6 +364,10 @@ instance MonoidalCategory () (,) (->) where
   lrightunit a = (a, ())
 
 
+-- #########################################
+-- monoidal category instances for Either in the category (->)
+-- #########################################
+
 instance Functor (->) (->) (Either a) where
   fmap = Prelude.fmap
 
@@ -369,6 +376,7 @@ instance Functor (->) Nat Either where
 
 instance Bifunctor (->) (->) (->) Either where
   bimap = Base.Bifunctor.bimap
+  first = Base.Bifunctor.first
 
 instance MonoidalCategory Void Either (->) where
   rassoc = \case
@@ -383,6 +391,89 @@ instance MonoidalCategory Void Either (->) where
   lleftunit = Right
   rrightunit = Prelude.either id absurd
   lrightunit = Left
+
+
+-- #########################################
+-- monoidal category instances for Product in the category Nat
+-- #########################################
+
+instance (Functor (->) (->) f, Functor (->) (->) g) => Functor (->) (->) (Product f g) where
+  fmap f (Pair fa ga) = Pair (fmap f fa) (fmap f ga)
+
+instance (Functor (->) (->) a) => Functor Nat Nat (Product a) where
+  fmap (Nat f) = Nat (\(Pair x y) -> Pair x (f y))
+
+instance Functor Nat NatNat Product where
+  fmap (Nat f) = Nat (Nat (\(Pair x y) -> Pair (f x) y))
+
+instance Bifunctor Nat Nat Nat Product where
+  bimap (Nat f) (Nat g) = Nat (\(Pair x y) -> Pair (f x) (g y))
+  first (Nat f) = Nat (\(Pair x y) -> Pair (f x) y)
+
+instance Functor (->) (->) Proxy where
+  fmap _f Proxy = Proxy
+
+instance MonoidalCategory Proxy Product Nat where
+  rassoc = Nat (\(Pair (Pair a b) c) -> Pair a (Pair b c))
+  lassoc = Nat (\(Pair a (Pair b c)) -> Pair (Pair a b) c)
+  rleftunit = Nat (\(Pair Proxy a) -> a)
+  lleftunit = Nat (Pair Proxy)
+  rrightunit = Nat (\(Pair a Proxy) -> a)
+  lrightunit = Nat (`Pair` Proxy)
+
+
+-- #########################################
+-- monoidal category instances for Sum in the category Nat
+-- #########################################
+
+instance (Functor (->) (->) f, Functor (->) (->) g) => Functor (->) (->) (Sum f g) where
+  fmap f = \case
+    InL fa -> InL (fmap f fa)
+    InR ga -> InR (fmap f ga)
+
+instance (Functor (->) (->) a) => Functor Nat Nat (Sum a) where
+  fmap (Nat f) = Nat (\case
+    InL ax -> InL ax
+    InR bx -> InR (f bx))
+
+instance Functor Nat NatNat Sum where
+  fmap (Nat f) = Nat (Nat (\case
+    InL ax -> InL (f ax)
+    InR bx -> InR bx))
+
+instance Bifunctor Nat Nat Nat Sum where
+  bimap (Nat f) (Nat g) = Nat (\case
+    InL ax -> InL (f ax)
+    InR bx -> InR (g bx))
+  first (Nat f) = Nat (\case
+    InL ax -> InL (f ax)
+    InR bx -> InR bx)
+
+data Void1 a
+
+absurd1 :: Void1 x -> b
+absurd1 v = case v of {}
+
+instance Functor (->) (->) Void1 where
+  fmap _f = absurd1 
+
+instance MonoidalCategory Void1 Sum Nat where
+  rassoc = Nat (\case
+    InL (InL a) -> InL a
+    InL (InR b) -> InR (InL b)
+    InR c       -> InR (InR c))
+  lassoc = Nat (\case
+    InL a       -> InL (InL a)
+    InR (InL b) -> InL (InR b)
+    InR (InR c) -> InR c)
+  rleftunit = Nat (\case 
+    InL v -> absurd1 v
+    InR a -> a)
+  lleftunit = Nat InR
+  rrightunit = Nat (\case 
+    InL a -> a
+    InR v -> absurd1 v)
+  lrightunit = Nat InL
 
 
 -- #########################################
