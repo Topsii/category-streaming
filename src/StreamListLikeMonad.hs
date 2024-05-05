@@ -112,8 +112,8 @@ second = fmap
 type TensorProduct k = k -> k -> k
 type TensorUnit k = k
 
-type MonoidalCategory :: forall {k}. TensorUnit k -> TensorProduct k -> Morphism k -> Constraint
-class ( Bifunctor morphism morphism morphism m, Category morphism) => MonoidalCategory e m morphism | m morphism -> e where
+type MonoidalCategory :: forall {k}. Morphism k -> TensorProduct k -> TensorUnit k -> Constraint
+class ( Bifunctor morphism morphism morphism m, Category morphism) => MonoidalCategory morphism m e | morphism m -> e where
     rassoc :: (ObjectConstraint morphism a, ObjectConstraint morphism b, ObjectConstraint morphism c) => ((a `m` b) `m` c) `morphism` (a `m` (b `m` c))
     lassoc :: (ObjectConstraint morphism a, ObjectConstraint morphism b, ObjectConstraint morphism c) => (a `m` (b `m` c)) `morphism` ((a `m` b) `m` c)
     rleftunit :: ObjectConstraint morphism a => (e `m` a) `morphism` a
@@ -122,7 +122,7 @@ class ( Bifunctor morphism morphism morphism m, Category morphism) => MonoidalCa
     lrightunit :: ObjectConstraint morphism a => a `morphism` (a `m` e)
     
 type MonoidInMonoidalCategory :: forall {k}. k -> (k -> k -> k) -> Morphism k -> k -> Constraint
-class (MonoidalCategory e m morphism) => MonoidInMonoidalCategory e m morphism a | a -> m morphism where
+class (MonoidalCategory morphism m e) => MonoidInMonoidalCategory e m morphism a | a -> m morphism where
   mu :: (a `m` a) `morphism` a
   nu :: e `morphism` a
 
@@ -156,7 +156,7 @@ class (forall a b. Category (HomCategory one_morphism a b)) => TwoCategory one_m
 
 
 
-class (MonoidalCategory e p two_morphism) => VertComp e p one_morphism two_morphism | two_morphism -> p one_morphism where
+class (MonoidalCategory two_morphism p e) => VertComp e p one_morphism two_morphism | two_morphism -> p one_morphism where
   lvertComp :: Proxy two_morphism -> (ObjectConstraint one_morphism ((p f g) a), ObjectConstraint one_morphism (f (g a))) =>  (p f g) a `one_morphism` f (g a)
   rvertComp :: Proxy two_morphism -> (ObjectConstraint one_morphism (f (g a)), ObjectConstraint one_morphism ((p f g) a)) => f (g a) `one_morphism` (p f g) a
   -- lvertComp :: Proxy two_morphism -> (p f g) a `one_morphism` f (g a)
@@ -240,7 +240,7 @@ instance (Category src_morphism, Category tgt_morphism) => Category (NatTrans (s
   id = Nat id
   (.) (Nat f) (Nat g) = Nat (f . g)
 
-instance MonoidalCategory Identity Compose Nat where
+instance MonoidalCategory Nat Compose Identity where
   -- in case of the assoc and rightunit conversions we need to utilize the Functor instance of the most outer functor, because the role of its type argument could be nominal
   rassoc = Nat (Compose . fmap Compose . getCompose . getCompose)
   lassoc =  Nat (Compose . Compose . fmap getCompose . getCompose)
@@ -291,7 +291,7 @@ instance Functor (->) (->) Identity where
 fmap2 :: forall f a b. (Functor Nat Nat f, Functor (->) (->) a) => (forall x. a x -> b x) -> (forall x. f a x -> f b x)
 fmap2 f = runNat (fmap @Nat @Nat @f @a @b (Nat f))
 
-instance MonoidalCategory IdentityT ComposeT NatNat where
+instance MonoidalCategory NatNat ComposeT IdentityT where
   rassoc = Nat (Nat (ComposeT . fmap2 ComposeT . getComposeT . getComposeT))
   lassoc = Nat (Nat (ComposeT . ComposeT . fmap2 getComposeT . getComposeT))
   rleftunit = Nat (Nat (runIdentityT . getComposeT))
@@ -355,7 +355,7 @@ instance Bifunctor (->) (->) (->) (,) where
   bimap = Base.Bifunctor.bimap
   first = Base.Bifunctor.first
 
-instance MonoidalCategory () (,) (->) where
+instance MonoidalCategory (->) (,) () where
   rassoc ((a, b), c) = (a, (b, c))
   lassoc (a, (b, c)) = ((a, b), c)
   rleftunit ((), a) = a
@@ -378,7 +378,7 @@ instance Bifunctor (->) (->) (->) Either where
   bimap = Base.Bifunctor.bimap
   first = Base.Bifunctor.first
 
-instance MonoidalCategory Void Either (->) where
+instance MonoidalCategory (->) Either Void where
   rassoc = \case
     Left (Left a)  -> Left a
     Left (Right b) -> Right (Left b)
@@ -413,7 +413,7 @@ instance Bifunctor Nat Nat Nat Product where
 instance Functor (->) (->) Proxy where
   fmap _f Proxy = Proxy
 
-instance MonoidalCategory Proxy Product Nat where
+instance MonoidalCategory Nat Product Proxy where
   rassoc = Nat (\(Pair (Pair a b) c) -> Pair a (Pair b c))
   lassoc = Nat (\(Pair a (Pair b c)) -> Pair (Pair a b) c)
   rleftunit = Nat (\(Pair Proxy a) -> a)
@@ -457,7 +457,7 @@ absurd1 v = case v of {}
 instance Functor (->) (->) Void1 where
   fmap _f = absurd1 
 
-instance MonoidalCategory Void1 Sum Nat where
+instance MonoidalCategory Nat Sum Void1 where
   rassoc = Nat (\case
     InL (InL a) -> InL a
     InL (InR b) -> InR (InL b)
