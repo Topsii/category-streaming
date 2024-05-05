@@ -344,7 +344,7 @@ instance Functor (->) (->) f => Functor (->) (->) (IdentityT f) where
 instance Functor (->) (->) ((,) a) where
   fmap = Base.Bifunctor.second
 
-instance Functor (->) (NatTrans (->) (->)) (,) where
+instance Functor (->) Nat (,) where
   fmap f = Nat (Base.Bifunctor.first f)
 
 instance Bifunctor (->) (->) (->) (,) where
@@ -354,7 +354,7 @@ instance Bifunctor (->) (->) (->) (,) where
 instance Functor (->) (->) (Either a) where
   fmap = Base.Bifunctor.second
 
-instance Functor (->) (NatTrans (->) (->)) Either where
+instance Functor (->) Nat Either where
   fmap f = Nat (Base.Bifunctor.first f)
 
 instance Bifunctor (->) (->) (->) Either where
