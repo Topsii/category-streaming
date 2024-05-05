@@ -17,6 +17,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE LambdaCase #-}
 
 module StreamListLikeMonad where
 import Prelude (IO, putStrLn, undefined)
@@ -34,7 +35,8 @@ import Data.Maybe (Maybe)
 import Control.Monad qualified (join) 
 import qualified Control.Applicative
 import Data.Type.Equality ( type (~) ) 
-import Data.Either (Either)
+import Data.Either (Either (Left, Right))
+import Data.Void (Void, absurd)
 
 someFunc :: IO ()
 someFunc = putStrLn "someFunc"
@@ -108,7 +110,7 @@ type TensorProduct k = k -> k -> k
 type TensorUnit k = k
 
 type MonoidalCategory :: forall {k}. TensorUnit k -> TensorProduct k -> Morphism k -> Constraint
-class ( Bifunctor morphism morphism morphism m, Category morphism) => MonoidalCategory e m morphism | morphism -> e, morphism -> m where
+class ( Bifunctor morphism morphism morphism m, Category morphism) => MonoidalCategory e m morphism | m morphism -> e where
     rassoc :: (ObjectConstraint morphism a, ObjectConstraint morphism b, ObjectConstraint morphism c) => ((a `m` b) `m` c) `morphism` (a `m` (b `m` c))
     lassoc :: (ObjectConstraint morphism a, ObjectConstraint morphism b, ObjectConstraint morphism c) => (a `m` (b `m` c)) `morphism` ((a `m` b) `m` c)
     rleftunit :: ObjectConstraint morphism a => (e `m` a) `morphism` a
@@ -117,7 +119,7 @@ class ( Bifunctor morphism morphism morphism m, Category morphism) => MonoidalCa
     lrightunit :: ObjectConstraint morphism a => a `morphism` (a `m` e)
     
 type MonoidInMonoidalCategory :: forall {k}. k -> (k -> k -> k) -> Morphism k -> k -> Constraint
-class (MonoidalCategory e m morphism) => MonoidInMonoidalCategory e m morphism a | a -> morphism where
+class (MonoidalCategory e m morphism) => MonoidInMonoidalCategory e m morphism a | a -> m morphism where
   mu :: (a `m` a) `morphism` a
   nu :: e `morphism` a
 
@@ -151,7 +153,7 @@ class (forall a b. Category (HomCategory one_morphism a b)) => TwoCategory one_m
 
 
 
-class (MonoidalCategory e p two_morphism) => VertComp e p one_morphism two_morphism | two_morphism -> one_morphism where
+class (MonoidalCategory e p two_morphism) => VertComp e p one_morphism two_morphism | two_morphism -> p one_morphism where
   lvertComp :: Proxy two_morphism -> (ObjectConstraint one_morphism ((p f g) a), ObjectConstraint one_morphism (f (g a))) =>  (p f g) a `one_morphism` f (g a)
   rvertComp :: Proxy two_morphism -> (ObjectConstraint one_morphism (f (g a)), ObjectConstraint one_morphism ((p f g) a)) => f (g a) `one_morphism` (p f g) a
   -- lvertComp :: Proxy two_morphism -> (p f g) a `one_morphism` f (g a)
@@ -338,11 +340,11 @@ instance Functor (->) (->) f => Functor (->) (->) (IdentityT f) where
 
 
 -- #########################################
--- instances for bifunctors in the category (->) such as (,) or Either
+-- monoidal category instances for (,) and Either in the category (->)
 -- #########################################
 
 instance Functor (->) (->) ((,) a) where
-  fmap = Base.Bifunctor.second
+  fmap = Prelude.fmap
 
 instance Functor (->) Nat (,) where
   fmap f = Nat (Base.Bifunctor.first f)
@@ -350,15 +352,37 @@ instance Functor (->) Nat (,) where
 instance Bifunctor (->) (->) (->) (,) where
   bimap = Base.Bifunctor.bimap
 
+instance MonoidalCategory () (,) (->) where
+  rassoc ((a, b), c) = (a, (b, c))
+  lassoc (a, (b, c)) = ((a, b), c)
+  rleftunit ((), a) = a
+  lleftunit a = ((), a)
+  rrightunit (a, ()) = a
+  lrightunit a = (a, ())
+
 
 instance Functor (->) (->) (Either a) where
-  fmap = Base.Bifunctor.second
+  fmap = Prelude.fmap
 
 instance Functor (->) Nat Either where
   fmap f = Nat (Base.Bifunctor.first f)
 
 instance Bifunctor (->) (->) (->) Either where
   bimap = Base.Bifunctor.bimap
+
+instance MonoidalCategory Void Either (->) where
+  rassoc = \case
+    Left (Left a)  -> Left a
+    Left (Right b) -> Right (Left b)
+    Right c        -> Right (Right c)
+  lassoc = \case
+    Left a          -> Left (Left a)
+    Right (Left b)  -> Left (Right b)
+    Right (Right c) -> Right c
+  rleftunit = Prelude.either absurd id
+  lleftunit = Right
+  rrightunit = Prelude.either id absurd
+  lrightunit = Left
 
 
 -- #########################################
