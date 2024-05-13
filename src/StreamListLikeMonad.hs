@@ -517,8 +517,8 @@ instance (Prelude.Monad m) => Functor Nat Nat (StreamFlip m) where
   fmap (Nat f) = Nat (coerce (maps @m f))
  
 instance (Prelude.Monad m) => RelativeMonad Nat Nat IdentityT (StreamFlip m) where
-  pure = Nat (coerce yields)
-  (=<<) (Nat f) = Nat (coerce (concats @_ @m . maps @m @_ @(Stream _ m) (coerce f)))
+  pure = Nat (MkStreamFlip . yields . runIdentityT)
+  (=<<) (Nat f) = Nat (MkStreamFlip . (concats . maps (getStream . f . IdentityT)) . getStream)
 
 instance (Functor (->) (->) f, Prelude.Monad m) => MonoidInMonoidalCategory Nat Compose Identity (StreamFlip m f) where
   mu = Nat (MkStreamFlip . joinStream . fmap getStream . getStream . getCompose)
@@ -526,7 +526,7 @@ instance (Functor (->) (->) f, Prelude.Monad m) => MonoidInMonoidalCategory Nat 
 
 instance (Prelude.Monad m) => MonoidInMonoidalCategory NatNat ComposeT IdentityT (StreamFlip m) where
   mu = Nat (Nat (coerce (concats . maps coerce)))
-  nu = Nat (Nat (coerce yields))
+  nu = Nat (Nat (MkStreamFlip . yields . runIdentityT))
 
 instance (Prelude.Monad m) => StrictMonad IdentityT ComposeT Nat NatNat (StreamFlip m) where
 
