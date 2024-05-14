@@ -33,9 +33,9 @@ import Control.Monad.Trans.Compose (ComposeT(..))
 import Data.Functor.Compose (Compose(..))
 import Data.Functor.Identity ( Identity(..) )
 import Data.Maybe (Maybe)
-import Control.Monad qualified (join) 
+import Control.Monad qualified (join)
 import qualified Control.Applicative
-import Data.Type.Equality ( type (~) ) 
+import Data.Type.Equality ( type (~) )
 import Data.Either (Either (Left, Right))
 import Data.Void (Void, absurd)
 import Data.Functor.Product (Product (Pair))
@@ -43,14 +43,14 @@ import Data.Functor.Sum (Sum (InL, InR))
 
 someFunc :: IO ()
 someFunc = putStrLn "someFunc"
- 
- 
+
+
 -- #########################################
 -- definition of the classes Category, Functor and RelativeMonad
 -- #########################################
- 
+
 type Morphism object_kind = object_kind -> object_kind -> Type
- 
+
 type Category :: forall {k}. Morphism k -> Constraint
 class Category morphism where
   type ObjectConstraint morphism :: i -> Constraint
@@ -64,7 +64,7 @@ class
     -- , forall a. ObjectConstraint src_morphism a => ObjectConstraint tgt_morphism (f a)
     -- the line above does not work, see https://gitlab.haskell.org/ghc/ghc/-/issues/16123 , instead we use a workaround in the line below:
     , forall objConstr a. (objConstr ~ ObjectConstraint tgt_morphism, ObjectConstraint src_morphism a) => objConstr (f a)
-    ) 
+    )
     => Functor src_morphism tgt_morphism f | f -> src_morphism tgt_morphism where
   fmap :: (ObjectConstraint src_morphism a) => (a `src_morphism` b) -> (f a `tgt_morphism` f b)
 
@@ -82,7 +82,7 @@ class
     )
     => Bifunctor src1_morphism src2_morphism tgt_morphism p | p -> src1_morphism src2_morphism tgt_morphism where
 
-  bimap 
+  bimap
     :: ( ObjectConstraint src1_morphism a
        , ObjectConstraint src1_morphism b
        , ObjectConstraint src2_morphism c
@@ -120,7 +120,7 @@ class ( Bifunctor morphism morphism morphism m, Category morphism) => MonoidalCa
     lleftunit :: ObjectConstraint morphism a => a `morphism` (e `m` a)
     rrightunit :: ObjectConstraint morphism a => (a `m` e) `morphism` a
     lrightunit :: ObjectConstraint morphism a => a `morphism` (a `m` e)
-    
+
 type MonoidInMonoidalCategory :: forall {k}. Morphism k -> (k -> k -> k) -> k -> k -> Constraint
 class (MonoidalCategory morphism m e) => MonoidInMonoidalCategory morphism m e a | a -> m morphism where
   mu :: (a `m` a) `morphism` a
@@ -130,7 +130,7 @@ type VertComposition a b c = (b -> c) -> (a -> b) -> (a -> c)
 type VertIdentity a = a -> a
 
 -- Morphism (k -> k) denotes the category of endofunctors
--- a Monad is a monoid in the category of endofunctors where the 
+-- a Monad is a monoid in the category of endofunctors where the
 -- tensor product @m@ is composition and the tensor unit @e@ is identity
 type Monad :: forall {k}. VertIdentity k -> VertComposition k k k -> Morphism (k -> k) -> (k -> k) -> Constraint
 type Monad e m morphism a = MonoidInMonoidalCategory morphism m e a
@@ -170,7 +170,7 @@ class (MonoidalCategory two_morphism p e) => VertComp e p one_morphism two_morph
 
 
 type StrictMonad :: forall {k}. VertIdentity k -> VertComposition k k k -> Morphism k -> Morphism (k -> k) -> (k -> k) -> Constraint
-class 
+class
     ( --forall (a :: k). Coercible (e a) a
     --, forall (a :: k). Coercible ((p m m) a) (m (m a))
     --, forall (f :: k -> k) (g :: k -> k). Coercible (f `two_morphism` g) (NatCopy one_morphism f g) -- move this constraint to the definition of TwoCategory?
@@ -205,18 +205,17 @@ class (Functor src_morphism tgt_morphism j, Functor src_morphism tgt_morphism m)
 
 
 -- #########################################
--- instances for the the normal function type (->)
+-- instances for the normal function type (->)
 -- #########################################
 
 instance Category (->) where
   type ObjectConstraint (->) = Vacuous (->)
   id = Prelude.id
   (.) = (Prelude..)
- 
+
 type Vacuous :: Morphism i -> i -> Constraint
 class Vacuous c a
 instance Vacuous c a
-
 
 -- #########################################
 -- definition of natural transformation (Nat) and its Category instance
@@ -257,7 +256,7 @@ instance VertComp Identity Compose (->) Nat where
   lenriched _ f = Nat f
   renriched _ f = runNat f
 
- 
+
 -- #########################################
 -- instances for Compose
 -- #########################################
@@ -279,7 +278,7 @@ instance Bifunctor Nat Nat Nat Compose where
 -- #########################################
 -- instances for Identity
 -- #########################################
- 
+
 instance Functor (->) (->) Identity where
   fmap f (Identity x) = Identity (f x)
 
@@ -287,7 +286,7 @@ instance Functor (->) (->) Identity where
 -- #########################################
 -- definition of transformations of natural transformation (NatNat) and its Category instance
 -- #########################################
- 
+
 fmap2 :: forall f a b. (Functor Nat Nat f, Functor (->) (->) a) => (forall x. a x -> b x) -> (forall x. f a x -> f b x)
 fmap2 f = runNat (fmap @Nat @Nat @f @a @b (Nat f))
 
@@ -315,7 +314,7 @@ instance VertComp IdentityT ComposeT Nat NatNat where
 instance Functor (->) (->) (f (g a)) => Functor (->) (->) (ComposeT f g a) where
   fmap :: forall x y. (x -> y) -> ComposeT f g a x -> ComposeT f g a y
   fmap = coerce (fmap @(->) @(->) @(f (g a)) @x @y)
- 
+
 instance (Functor Nat Nat f, Functor Nat Nat g) => Functor Nat Nat (ComposeT f g) where
   fmap (Nat f) = Nat (\(ComposeT x) -> ComposeT (fmap2 (fmap2 f) x))
 
@@ -333,10 +332,10 @@ instance Bifunctor NatNat NatNat NatNat ComposeT where
 -- #########################################
 -- instances for IdentityT
 -- #########################################
- 
+
 instance Functor Nat Nat IdentityT where
   fmap (Nat f) = Nat (IdentityT . f . runIdentityT)
- 
+
 instance Functor (->) (->) f => Functor (->) (->) (IdentityT f) where
   fmap func = coerce (fmap @(->) @(->) @f func)
 
@@ -455,7 +454,7 @@ absurd1 :: Void1 x -> b
 absurd1 v = case v of {}
 
 instance Functor (->) (->) Void1 where
-  fmap _f = absurd1 
+  fmap _f = absurd1
 
 instance MonoidalCategory Nat Sum Void1 where
   rassoc = Nat (\case
@@ -466,11 +465,11 @@ instance MonoidalCategory Nat Sum Void1 where
     InL a       -> InL (InL a)
     InR (InL b) -> InL (InR b)
     InR (InR c) -> InR c)
-  rleftunit = Nat (\case 
+  rleftunit = Nat (\case
     InL v -> absurd1 v
     InR a -> a)
   lleftunit = Nat InR
-  rrightunit = Nat (\case 
+  rrightunit = Nat (\case
     InL a -> a
     InR v -> absurd1 v)
   lrightunit = Nat InL
@@ -502,20 +501,20 @@ instance MonoidInMonoidalCategory Nat Compose Identity Maybe where
   nu = Nat (Prelude.return . coerce)
 instance StrictMonad Identity Compose (->) Nat Maybe
 
- 
+
 -- #########################################
 -- definition of StreamFlip and its instances
 -- #########################################
- 
+
 -- flips type parameters m and f
 newtype StreamFlip m f r = MkStreamFlip { getStream :: Stream f m r }
- 
+
 instance (Functor (->) (->) f, Prelude.Monad m) => Functor (->) (->) (StreamFlip m f) where
   fmap = coerce (fmap @(->) @(->) @(Stream f m))
- 
+
 instance (Prelude.Monad m) => Functor Nat Nat (StreamFlip m) where
   fmap (Nat f) = Nat (coerce (maps @m f))
- 
+
 instance (Prelude.Monad m) => RelativeMonad Nat Nat IdentityT (StreamFlip m) where
   pure = Nat (coerce yields)
   (=<<) (Nat f) = Nat (coerce (concats @_ @m . maps @m @_ @(Stream _ m) (coerce f)))
@@ -534,10 +533,10 @@ instance (Prelude.Monad m) => StrictMonad IdentityT ComposeT Nat NatNat (StreamF
 -- #########################################
 -- definitions for Stream
 -- #########################################
- 
- 
+
+
 -- Functor instance
- 
+
 instance (Functor (->) (->) f, Prelude.Monad m) => Functor (->) (->) (Stream f m) where
   fmap f = loop where
     loop stream = case stream of
@@ -545,11 +544,11 @@ instance (Functor (->) (->) f, Prelude.Monad m) => Functor (->) (->) (Stream f m
       Effect m -> Effect (do {stream' <- m; Prelude.return (loop stream')})
       Step   g -> Step (fmap loop g)
   {-# INLINABLE fmap #-}
- 
- 
--- copypasted definitions that were changed to 
+
+
+-- copypasted definitions that were changed to
 -- require Functor (->) (->) f instead of Prelude.Functor f
- 
+
 maps :: (Prelude.Monad m, Functor (->) (->) f) => (forall x. f x -> g x) -> Stream f m r -> Stream g m r
 maps phi = loop where
   loop stream = case stream of
@@ -557,7 +556,7 @@ maps phi = loop where
     Effect m -> Effect (Prelude.fmap loop m)
     Step   f -> Step (phi (fmap loop f))
 {-# INLINABLE maps #-}
- 
+
 concats :: forall f m r. (Prelude.Monad m, Functor (->) (->) f) => Stream (Stream f m) m r -> Stream f m r
 concats = loop where
   loop :: Stream (Stream f m) m r -> Stream f m r
@@ -566,7 +565,7 @@ concats = loop where
     Effect m -> (Effect . Prelude.fmap Return) m `bindStream` loop
     Step fs  -> fs `bindStream` loop
 {-# INLINE concats #-}
- 
+
 bindStream :: (Prelude.Monad m, Functor (->) (->) f) => Stream f m t -> (t -> Stream f m r) -> Stream f m r
 stream `bindStream` f =
   loop stream where
@@ -578,7 +577,7 @@ stream `bindStream` f =
 
 joinStream :: (Prelude.Monad m, Functor (->) (->) f) => Stream f m (Stream f m r) -> Stream f m r
 joinStream stream = bindStream stream id
- 
+
 yields :: (Prelude.Monad m, Functor (->) (->) f) => f r -> Stream f m r
 yields fr = Step (fmap Return fr)
 {-# INLINE yields #-}
