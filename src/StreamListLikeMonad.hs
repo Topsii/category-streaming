@@ -66,7 +66,7 @@ class
     , forall objConstr a. (objConstr ~ ObjectConstraint tgt_morphism, ObjectConstraint src_morphism a) => objConstr (f a)
     )
     => Functor src_morphism tgt_morphism f | f -> src_morphism tgt_morphism where
-  fmap :: (ObjectConstraint src_morphism a) => (a `src_morphism` b) -> (f a `tgt_morphism` f b)
+  fmap :: (ObjectConstraint src_morphism a, ObjectConstraint src_morphism b) => (a `src_morphism` b) -> (f a `tgt_morphism` f b)
 
 
 type Bifunctor :: Morphism i -> Morphism j -> Morphism k -> (i -> j -> k) -> Constraint
@@ -217,6 +217,79 @@ type Vacuous :: Morphism i -> i -> Constraint
 class Vacuous c a
 instance Vacuous c a
 
+
+-- #########################################
+-- instances for Op, the opposite category
+-- #########################################
+
+type Op :: Morphism k -> k -> k -> Type
+newtype Op morphism a b = Op (morphism b a)
+
+instance Category morphism => Category (Op morphism) where
+  type ObjectConstraint (Op morphism) = ObjectConstraint morphism
+  id = Op id
+  (.) (Op f) (Op g) = Op (g . f)
+
+-- deriving Op instances via Flip?
+
+
+-- #########################################
+-- instances for Flip
+-- #########################################
+
+type Flip :: (i -> j -> Type) -> j -> i -> Type
+newtype Flip p a b = Flip { runFlip :: p b a }
+
+instance Category morphism => Category (Flip morphism) where
+  type ObjectConstraint (Flip morphism) = ObjectConstraint morphism
+  id = Flip id
+  (.) (Flip f) (Flip g) = Flip (g . f)
+
+-- #########################################
+-- MonoidalCategory with flipped tensor product
+
+instance Functor (->) Nat p => Functor (->) (->) (Flip p a) where
+  fmap f = Flip . runNat (fmap f) . runFlip
+
+instance
+    ( Functor (->) Nat p
+    ) => Functor (->) Nat (Flip p) where
+  fmap f = Nat (Flip . fmap f . runFlip)
+
+instance (Bifunctor (->) (->) (->) p) => Bifunctor (->) (->) (->) (Flip p) where
+
+-- #########################################
+-- instances for Flip1
+-- #########################################
+
+type Flip1 :: (i -> j -> k -> Type) -> j -> i -> k -> Type
+newtype Flip1 p f g a = Flip1 { runFlip1 :: p g f a }
+
+instance Functor (->) (->) (p f g) => Functor (->) (->) (Flip1 p g f) where
+  fmap f = Flip1 . fmap f . runFlip1
+
+instance 
+    ( forall a. Functor (->) (->) (p a b)
+    , Functor (->) (->) b
+    , Functor Nat NatNat p
+    )
+    => Functor Nat Nat (Flip1 p b) where
+  fmap f = Nat (Flip1 . runNat (runNat (fmap f)) . runFlip1)
+
+instance
+    ( forall a b. Functor (->) (->) (p a b)
+    , Functor Nat NatNat p
+    )
+    => Functor Nat NatNat (Flip1 p) where
+  fmap f = Nat (Nat (Flip1 . runNat (fmap f) . runFlip1))
+
+instance
+    ( Bifunctor Nat Nat Nat p
+    , forall a b. Functor (->) (->) (p a b)
+    )
+    => Bifunctor Nat Nat Nat (Flip1 p) where
+
+
 -- #########################################
 -- definition of natural transformation (Nat) and its Category instance
 -- #########################################
@@ -287,7 +360,7 @@ instance Functor (->) (->) Identity where
 -- definition of transformations of natural transformation (NatNat) and its Category instance
 -- #########################################
 
-fmap2 :: forall f a b. (Functor Nat Nat f, Functor (->) (->) a) => (forall x. a x -> b x) -> (forall x. f a x -> f b x)
+fmap2 :: forall f a b. (Functor Nat Nat f, Functor (->) (->) a,  Functor (->) (->) b) => (forall x. a x -> b x) -> (forall x. f a x -> f b x)
 fmap2 f = runNat (fmap @Nat @Nat @f @a @b (Nat f))
 
 instance MonoidalCategory NatNat ComposeT IdentityT where
