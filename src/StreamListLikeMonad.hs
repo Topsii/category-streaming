@@ -19,6 +19,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE EmptyCase #-}
+{-# LANGUAGE StandaloneDeriving #-}
 
 module StreamListLikeMonad where
 import Prelude (IO, putStrLn, undefined)
@@ -235,12 +236,7 @@ instance Vacuous c a
 type Op :: Morphism k -> k -> k -> Type
 newtype Op morphism a b = Op (morphism b a)
 
-instance Category morphism => Category (Op morphism) where
-  type ObjectConstraint (Op morphism) = ObjectConstraint morphism
-  id = Op id
-  (.) (Op f) (Op g) = Op (g . f)
-
--- deriving Op instances via Flip?
+deriving via (Flip (morphism :: Morphism k)) instance Category morphism => Category (Op morphism)
 
 
 -- #########################################
