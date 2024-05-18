@@ -66,7 +66,7 @@ class
     -- the line above does not work, see https://gitlab.haskell.org/ghc/ghc/-/issues/16123 , instead we use a workaround in the line below:
     , forall objConstr a. (objConstr ~ ObjectConstraint tgt_morphism, ObjectConstraint src_morphism a) => objConstr (f a)
     )
-    => Functor src_morphism tgt_morphism f | f -> src_morphism tgt_morphism where
+    => Functor src_morphism tgt_morphism f where
   fmap :: (ObjectConstraint src_morphism a, ObjectConstraint src_morphism b) => (a `src_morphism` b) -> (f a `tgt_morphism` f b)
 
 type LiftObjConstr :: Morphism i -> Morphism j -> (i -> j) -> Constraint
@@ -91,7 +91,7 @@ class
     -- the line above does not work, see https://gitlab.haskell.org/ghc/ghc/-/issues/16123 , instead we use a workaround in the line below:
     , forall objConstr a b. (objConstr ~ ObjectConstraint tgt_morphism, ObjectConstraint src1_morphism a, ObjectConstraint src2_morphism b) => objConstr (p a b)
     )
-    => Bifunctor src1_morphism src2_morphism tgt_morphism p | p -> src1_morphism src2_morphism tgt_morphism where
+    => Bifunctor src1_morphism src2_morphism tgt_morphism p | p tgt_morphism -> src1_morphism src2_morphism where
 
   bimap
     :: ( ObjectConstraint src1_morphism a
@@ -100,7 +100,7 @@ class
        , ObjectConstraint src2_morphism d
        )
     => (a `src1_morphism` b) -> (c `src2_morphism` d) -> p a c `tgt_morphism` p b d
-  bimap f g = (runNat . fmap) f . fmap g
+  bimap f g = (runNat . fmap @src1_morphism @(NatTrans src2_morphism tgt_morphism)) f . fmap g
 
   first
     :: ( ObjectConstraint src1_morphism a
@@ -108,7 +108,7 @@ class
        , ObjectConstraint src2_morphism c
        )
     => (a `src1_morphism` b) -> p a c `tgt_morphism` p b c
-  first = runNat . fmap
+  first = runNat . fmap @src1_morphism @(NatTrans src2_morphism tgt_morphism)
 
 second
   :: ( Bifunctor src1_morphism src2_morphism tgt_morphism p
@@ -210,7 +210,7 @@ class
 
 -- https://ncatlab.org/nlab/show/relative+monad#idea
 type RelativeMonad :: forall {i} {j}. Morphism i -> Morphism j -> (i -> j) -> (i -> j) -> Constraint
-class (Functor src_morphism tgt_morphism j, Functor src_morphism tgt_morphism m) => RelativeMonad src_morphism tgt_morphism j m | m -> j where
+class (Functor src_morphism tgt_morphism j, Functor src_morphism tgt_morphism m) => RelativeMonad src_morphism tgt_morphism j m | m tgt_morphism -> src_morphism, m -> j where
   pure :: ObjectConstraint src_morphism a => j a `tgt_morphism` m a
   (=<<) :: (ObjectConstraint src_morphism a, ObjectConstraint src_morphism b) => (j a `tgt_morphism` m b) -> (m a `tgt_morphism` m b)
 
@@ -271,6 +271,39 @@ instance MonoidalCategory (->) m e => MonoidalCategory (->) (Flip m) e where
   lleftunit = Flip . lrightunit
   rrightunit = rleftunit . runFlip
   lrightunit = Flip . lleftunit
+
+-- #########################################
+-- MonoidalCategory instance with opposite category
+
+instance (Functor (->) (->) (p a)) => Functor (Flip (->)) (Flip (->)) (p a) where
+  fmap = Flip . fmap . runFlip
+
+instance 
+    ( Functor (->) (NatTrans (->) (->)) p
+    , LiftObjConstr (Flip (->)) (NatTrans (Flip (->)) (Flip (->))) p
+    )
+    => Functor (Flip (->)) (NatTrans (Flip (->)) (Flip (->))) p
+    where
+  fmap f = Nat (Flip (runNat (fmap @(->) @Nat (runFlip f))))
+
+instance
+    ( Bifunctor (->) (->) (->) p
+    , LiftObjConstr (Flip (->)) (NatTrans (Flip (->)) (Flip (->))) p
+    )
+    => Bifunctor (Flip (->)) (Flip (->)) (Flip (->)) p
+
+instance 
+    ( MonoidalCategory (->) m e
+    , LiftObjConstr (Flip (->)) (NatTrans (Flip (->)) (Flip (->))) m
+    )
+    => MonoidalCategory (Flip (->)) m e where
+  rassoc = Flip lassoc
+  lassoc = Flip rassoc
+  rleftunit = Flip lleftunit
+  lleftunit = Flip rleftunit
+  rrightunit = Flip lrightunit
+  lrightunit = Flip rrightunit
+
 
 -- #########################################
 -- instances for Flip1
@@ -364,7 +397,7 @@ instance VertComp Identity Compose (->) Nat where
 -- #########################################
 
 instance (Functor (->) (->) f, Functor (->) (->) g) => Functor (->) (->) (Compose f g) where
-  fmap f (Compose x) = Compose (fmap (fmap f) x)
+  fmap f = Compose . fmap (fmap @(->) @(->) f) . getCompose
 
 instance Functor (->) (->) t => Functor Nat Nat (Compose t) where
   fmap (Nat f) = Nat (Compose . fmap f . getCompose)
