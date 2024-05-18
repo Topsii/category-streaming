@@ -308,6 +308,21 @@ instance
     => Bifunctor Nat Nat Nat (Flip1 p) where
 
 
+bimapFlippedProduct
+  ::
+    ( ObjectConstraint Nat a
+    , ObjectConstraint Nat b
+    , ObjectConstraint Nat c
+    , ObjectConstraint Nat d
+    )
+  => Nat a c
+  -> Nat b d
+  -> Nat
+      (Flip1 Product a b)
+      (Flip1 Product c d)
+bimapFlippedProduct = bimap @(Type -> Type) @(Type -> Type) @(Type -> Type) @Nat @Nat @Nat @(Flip1 Product)
+
+
 -- #########################################
 -- definition of natural transformation (Nat) and its Category instance
 -- #########################################
