@@ -268,6 +268,14 @@ instance
 
 instance (Bifunctor (->) (->) (->) p) => Bifunctor (->) (->) (->) (Flip p) where
 
+instance MonoidalCategory (->) m e => MonoidalCategory (->) (Flip m) e where
+  rassoc = Flip . first Flip . lassoc . second runFlip . runFlip
+  lassoc = Flip . second Flip . rassoc . first runFlip . runFlip
+  rleftunit = rrightunit . runFlip
+  lleftunit = Flip . lrightunit
+  rrightunit = rleftunit . runFlip
+  lrightunit = Flip . lleftunit
+
 -- #########################################
 -- instances for Flip1
 -- #########################################
