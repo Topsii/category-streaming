@@ -68,6 +68,16 @@ class
     => Functor src_morphism tgt_morphism f | f -> src_morphism tgt_morphism where
   fmap :: (ObjectConstraint src_morphism a, ObjectConstraint src_morphism b) => (a `src_morphism` b) -> (f a `tgt_morphism` f b)
 
+type LiftObjConstr :: Morphism i -> Morphism j -> (i -> j) -> Constraint
+type LiftObjConstr src_morphism tgt_morphism f =
+  (forall objConstr a.
+     ( objConstr ~ ObjectConstraint tgt_morphism
+     , ObjectConstraint src_morphism a
+     )
+     => objConstr (f a))
+
+type LiftObjConstr2 :: Morphism i -> Morphism j -> Morphism k -> (i -> j -> k) -> Constraint
+type LiftObjConstr2 src1_morphism src2_morphism tgt_morphism p = (forall objConstr a b. (objConstr ~ ObjectConstraint tgt_morphism, ObjectConstraint src1_morphism a, ObjectConstraint src2_morphism b) => objConstr (p a b))
 
 type Bifunctor :: Morphism i -> Morphism j -> Morphism k -> (i -> j -> k) -> Constraint
 class
@@ -265,27 +275,27 @@ instance (Bifunctor (->) (->) (->) p) => Bifunctor (->) (->) (->) (Flip p) where
 type Flip1 :: (i -> j -> k -> Type) -> j -> i -> k -> Type
 newtype Flip1 p f g a = Flip1 { runFlip1 :: p g f a }
 
-instance Functor (->) (->) (p f g) => Functor (->) (->) (Flip1 p g f) where
+instance (Functor (->) (->) (p a b)) => Functor (->) (->) (Flip1 p b a) where
   fmap f = Flip1 . fmap f . runFlip1
 
-instance 
-    ( forall a. Functor (->) (->) (p a b)
-    , Functor (->) (->) b
+instance -- first to second
+    ( ObjectConstraint Nat b
+    -- , forall a. Functor Nat Nat (p a) => Functor (->) (->) (p a b)
     , Functor Nat NatNat p
+    , LiftObjConstr Nat Nat (Flip1 p b)
     )
     => Functor Nat Nat (Flip1 p b) where
-  fmap f = Nat (Flip1 . runNat (runNat (fmap f)) . runFlip1)
+  fmap f = Nat (Flip1 . runNat (runNat (fmap @Nat @NatNat f)) . runFlip1)
 
-instance
-    ( forall a b. Functor (->) (->) (p a b)
-    , Functor Nat NatNat p
+instance -- second to first
+    ( Functor Nat NatNat p
+    , LiftObjConstr2 Nat Nat Nat (Flip1 p)
     )
     => Functor Nat NatNat (Flip1 p) where
   fmap f = Nat (Nat (Flip1 . runNat (fmap f) . runFlip1))
 
 instance
     ( Bifunctor Nat Nat Nat p
-    , forall a b. Functor (->) (->) (p a b)
     )
     => Bifunctor Nat Nat Nat (Flip1 p) where
 
