@@ -352,6 +352,9 @@ bimapFlippedProduct
 bimapFlippedProduct = bimap @(Type -> Type) @(Type -> Type) @(Type -> Type) @Nat @Nat @Nat @(Flip1 Product)
 
 
+lassocFlipped2 = lassoc @(Flip (->)) @(Flip (,)) @()
+
+
 -- #########################################
 -- definition of natural transformation (Nat) and its Category instance
 -- #########################################
