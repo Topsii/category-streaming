@@ -15,6 +15,7 @@
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE UndecidableSuperClasses #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
@@ -63,22 +64,14 @@ class
     ( Category src_morphism
     , Category tgt_morphism
     -- , forall a. ObjectConstraint src_morphism a => ObjectConstraint tgt_morphism (f a)
-    -- the line above does not work, see https://gitlab.haskell.org/ghc/ghc/-/issues/16123 , instead we use a workaround in the line below:
-    , forall objConstr a. (objConstr ~ ObjectConstraint tgt_morphism, ObjectConstraint src_morphism a) => objConstr (f a)
+    -- the line above does not work, instead we use the workaround from https://gitlab.haskell.org/ghc/ghc/-/issues/14860#note_495352 in the line below:
+    , forall a. (ObjectConstraint src_morphism a) => Obj tgt_morphism (f a)
     )
     => Functor src_morphism tgt_morphism f where
   fmap :: (ObjectConstraint src_morphism a, ObjectConstraint src_morphism b) => (a `src_morphism` b) -> (f a `tgt_morphism` f b)
 
-type LiftObjConstr :: Morphism i -> Morphism j -> (i -> j) -> Constraint
-type LiftObjConstr src_morphism tgt_morphism f =
-  (forall objConstr a.
-     ( objConstr ~ ObjectConstraint tgt_morphism
-     , ObjectConstraint src_morphism a
-     )
-     => objConstr (f a))
-
-type LiftObjConstr2 :: Morphism i -> Morphism j -> Morphism k -> (i -> j -> k) -> Constraint
-type LiftObjConstr2 src1_morphism src2_morphism tgt_morphism p = (forall objConstr a b. (objConstr ~ ObjectConstraint tgt_morphism, ObjectConstraint src1_morphism a, ObjectConstraint src2_morphism b) => objConstr (p a b))
+class    (ObjectConstraint x a) => Obj x a
+instance (ObjectConstraint x a) => Obj x a
 
 type Bifunctor :: Morphism i -> Morphism j -> Morphism k -> (i -> j -> k) -> Constraint
 class
@@ -88,8 +81,8 @@ class
     , Functor src1_morphism (NatTrans src2_morphism tgt_morphism) p -- fmap = first
     , forall z. ObjectConstraint src1_morphism z => Functor src2_morphism tgt_morphism (p z) -- fmap = second
     -- , forall a b. (ObjectConstraint src_morphism a, ObjectConstraint src_morphism b) => ObjectConstraint tgt_morphism (p a b)
-    -- the line above does not work, see https://gitlab.haskell.org/ghc/ghc/-/issues/16123 , instead we use a workaround in the line below:
-    , forall objConstr a b. (objConstr ~ ObjectConstraint tgt_morphism, ObjectConstraint src1_morphism a, ObjectConstraint src2_morphism b) => objConstr (p a b)
+    -- the line above does not work, instead we use the workaround from https://gitlab.haskell.org/ghc/ghc/-/issues/14860#note_495352 in the line below:
+    , forall a b. (ObjectConstraint src1_morphism a, ObjectConstraint src2_morphism b) => Obj tgt_morphism (p a b)
     )
     => Bifunctor src1_morphism src2_morphism tgt_morphism p | p tgt_morphism -> src1_morphism src2_morphism where
 
@@ -255,7 +248,7 @@ instance Category morphism => Category (Flip morphism) where
 -- MonoidalCategory with flipped tensor product
 
 instance Functor (->) Nat p => Functor (->) (->) (Flip p a) where
-  fmap f = Flip . runNat (fmap f) . runFlip
+  fmap f = Flip . runNat (fmap @(->) @Nat f) . runFlip
 
 instance
     ( Functor (->) Nat p
@@ -280,7 +273,6 @@ instance (Functor (->) (->) (p a)) => Functor (Flip (->)) (Flip (->)) (p a) wher
 
 instance 
     ( Functor (->) (NatTrans (->) (->)) p
-    , LiftObjConstr (Flip (->)) (NatTrans (Flip (->)) (Flip (->))) p
     )
     => Functor (Flip (->)) (NatTrans (Flip (->)) (Flip (->))) p
     where
@@ -288,13 +280,11 @@ instance
 
 instance
     ( Bifunctor (->) (->) (->) p
-    , LiftObjConstr (Flip (->)) (NatTrans (Flip (->)) (Flip (->))) p
     )
     => Bifunctor (Flip (->)) (Flip (->)) (Flip (->)) p
 
 instance 
     ( MonoidalCategory (->) m e
-    , LiftObjConstr (Flip (->)) (NatTrans (Flip (->)) (Flip (->))) m
     )
     => MonoidalCategory (Flip (->)) m e where
   rassoc = Flip lassoc
@@ -316,20 +306,17 @@ instance (Functor (->) (->) (p a b)) => Functor (->) (->) (Flip1 p b a) where
   fmap f = Flip1 . fmap f . runFlip1
 
 instance -- first to second
-    ( ObjectConstraint Nat b
-    -- , forall a. Functor Nat Nat (p a) => Functor (->) (->) (p a b)
+    ( Functor (->) (->) b
     , Functor Nat NatNat p
-    , LiftObjConstr Nat Nat (Flip1 p b)
     )
     => Functor Nat Nat (Flip1 p b) where
   fmap f = Nat (Flip1 . runNat (runNat (fmap @Nat @NatNat f)) . runFlip1)
 
 instance -- second to first
     ( Functor Nat NatNat p
-    , LiftObjConstr2 Nat Nat Nat (Flip1 p)
     )
     => Functor Nat NatNat (Flip1 p) where
-  fmap f = Nat (Nat (Flip1 . runNat (fmap f) . runFlip1))
+  fmap f = Nat (Nat (Flip1 . runNat (fmap @Nat @Nat f) . runFlip1))
 
 instance
     ( Bifunctor Nat Nat Nat p
