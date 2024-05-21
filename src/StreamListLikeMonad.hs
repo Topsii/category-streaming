@@ -19,7 +19,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE EmptyCase #-}
-{-# LANGUAGE StandaloneDeriving #-}
 
 module StreamListLikeMonad where
 import Prelude (IO, putStrLn, undefined)
@@ -36,7 +35,6 @@ import Data.Functor.Identity ( Identity(..) )
 import Data.Maybe (Maybe)
 import Control.Monad qualified (join)
 import qualified Control.Applicative
-import Data.Type.Equality ( type (~) )
 import Data.Either (Either (Left, Right))
 import Data.Void (Void, absurd)
 import Data.Functor.Product (Product (Pair))
@@ -52,69 +50,53 @@ someFunc = putStrLn "someFunc"
 
 type Morphism object_kind = object_kind -> object_kind -> Type
 
-type Category :: forall {k}. Morphism k -> Constraint
-class Category morphism where
-  type ObjectConstraint morphism :: i -> Constraint
-  id :: ObjectConstraint morphism a => a `morphism` a
+type Category :: forall {k}. Morphism k -> (k -> Constraint) -> Constraint
+class Category morphism obj_constr | morphism -> obj_constr where
+  id ::  obj_constr a => a `morphism` a
   (.) :: (b `morphism` c) -> (a `morphism` b) -> (a `morphism` c)
 
-type Functor :: forall {i} {j}. Morphism i -> Morphism j -> (i -> j) -> Constraint
+type Functor :: forall {i} {j}. Morphism i -> (i -> Constraint) -> Morphism j -> (j -> Constraint) -> (i -> j) -> Constraint
 class
-    ( Category src_morphism
-    , Category tgt_morphism
-    -- , forall a. ObjectConstraint src_morphism a => ObjectConstraint tgt_morphism (f a)
-    -- the line above does not work, see https://gitlab.haskell.org/ghc/ghc/-/issues/16123 , instead we use a workaround in the line below:
-    , forall objConstr a. (objConstr ~ ObjectConstraint tgt_morphism, ObjectConstraint src_morphism a) => objConstr (f a)
+    ( Category src_morphism src_obj_constr
+    , Category tgt_morphism tgt_obj_constr
+    , forall a. src_obj_constr a => tgt_obj_constr (f a)
     )
-    => Functor src_morphism tgt_morphism f where
-  fmap :: (ObjectConstraint src_morphism a, ObjectConstraint src_morphism b) => (a `src_morphism` b) -> (f a `tgt_morphism` f b)
+    => Functor src_morphism src_obj_constr tgt_morphism tgt_obj_constr f where
+  fmap :: (src_obj_constr  a, src_obj_constr b) => (a `src_morphism` b) -> (f a `tgt_morphism` f b)
 
-type LiftObjConstr :: Morphism i -> Morphism j -> (i -> j) -> Constraint
-type LiftObjConstr src_morphism tgt_morphism f =
-  (forall objConstr a.
-     ( objConstr ~ ObjectConstraint tgt_morphism
-     , ObjectConstraint src_morphism a
-     )
-     => objConstr (f a))
-
-type LiftObjConstr2 :: Morphism i -> Morphism j -> Morphism k -> (i -> j -> k) -> Constraint
-type LiftObjConstr2 src1_morphism src2_morphism tgt_morphism p = (forall objConstr a b. (objConstr ~ ObjectConstraint tgt_morphism, ObjectConstraint src1_morphism a, ObjectConstraint src2_morphism b) => objConstr (p a b))
-
-type Bifunctor :: Morphism i -> Morphism j -> Morphism k -> (i -> j -> k) -> Constraint
+type Bifunctor :: Morphism i -> (i -> Constraint) -> Morphism j -> (j -> Constraint) -> Morphism k -> (k -> Constraint) -> (i -> j -> k) -> Constraint
 class
-    ( Category src1_morphism
-    , Category src2_morphism
-    , Category tgt_morphism
-    , Functor src1_morphism (NatTrans src2_morphism tgt_morphism) p -- fmap = first
-    , forall z. ObjectConstraint src1_morphism z => Functor src2_morphism tgt_morphism (p z) -- fmap = second
-    -- , forall a b. (ObjectConstraint src_morphism a, ObjectConstraint src_morphism b) => ObjectConstraint tgt_morphism (p a b)
-    -- the line above does not work, see https://gitlab.haskell.org/ghc/ghc/-/issues/16123 , instead we use a workaround in the line below:
-    , forall objConstr a b. (objConstr ~ ObjectConstraint tgt_morphism, ObjectConstraint src1_morphism a, ObjectConstraint src2_morphism b) => objConstr (p a b)
+    ( Category src1_morphism src1_obj_constr
+    , Category src2_morphism src2_obj_constr
+    , Category tgt_morphism tgt_obj_constr
+    , Functor src1_morphism src1_obj_constr (NatTrans src2_morphism src2_obj_constr tgt_morphism tgt_obj_constr) (Functor src2_morphism src2_obj_constr tgt_morphism tgt_obj_constr) p -- fmap = first
+    , forall z. src1_obj_constr z => Functor src2_morphism src2_obj_constr tgt_morphism tgt_obj_constr (p z) -- fmap = second
+    , forall a b. (src1_obj_constr a, src2_obj_constr b) => tgt_obj_constr (p a b)
     )
-    => Bifunctor src1_morphism src2_morphism tgt_morphism p | p tgt_morphism -> src1_morphism src2_morphism where
+    => Bifunctor src1_morphism src1_obj_constr src2_morphism src2_obj_constr tgt_morphism tgt_obj_constr p | p tgt_morphism -> src1_morphism src2_morphism where
 
   bimap
-    :: ( ObjectConstraint src1_morphism a
-       , ObjectConstraint src1_morphism b
-       , ObjectConstraint src2_morphism c
-       , ObjectConstraint src2_morphism d
+    :: ( src1_obj_constr a
+       , src1_obj_constr b
+       , src2_obj_constr c
+       , src2_obj_constr d
        )
     => (a `src1_morphism` b) -> (c `src2_morphism` d) -> p a c `tgt_morphism` p b d
-  bimap f g = (runNat . fmap @src1_morphism @(NatTrans src2_morphism tgt_morphism)) f . fmap g
+  bimap f g = (runNat . fmap @src1_morphism @_ @(NatTrans src2_morphism src2_obj_constr tgt_morphism tgt_obj_constr) @_) f . fmap g
 
   first
-    :: ( ObjectConstraint src1_morphism a
-       , ObjectConstraint src1_morphism b
-       , ObjectConstraint src2_morphism c
+    :: ( src1_obj_constr a
+       , src1_obj_constr b
+       , src2_obj_constr c
        )
     => (a `src1_morphism` b) -> p a c `tgt_morphism` p b c
-  first = runNat . fmap @src1_morphism @(NatTrans src2_morphism tgt_morphism)
+  first = runNat . fmap @src1_morphism @_ @(NatTrans src2_morphism src2_obj_constr tgt_morphism tgt_obj_constr) @_
 
 second
-  :: ( Bifunctor src1_morphism src2_morphism tgt_morphism p
-     , ObjectConstraint src1_morphism a
-     , ObjectConstraint src2_morphism c
-     , ObjectConstraint src2_morphism d
+  :: ( Bifunctor src1_morphism src1_obj_constr src2_morphism src2_obj_constr tgt_morphism tgt_obj_constr p
+     , src1_obj_constr a
+     , src2_obj_constr c
+     , src2_obj_constr d
      )
   => (c `src2_morphism` d) -> p a c `tgt_morphism` p a d
 second = fmap
@@ -123,17 +105,17 @@ second = fmap
 type TensorProduct k = k -> k -> k
 type TensorUnit k = k
 
-type MonoidalCategory :: forall {k}. Morphism k -> TensorProduct k -> TensorUnit k -> Constraint
-class ( Bifunctor morphism morphism morphism m, Category morphism) => MonoidalCategory morphism m e | morphism m -> e where -- todo: remove this functional dependency by moving rassoc and lassoc to a superclass named Semicategory
-    rassoc :: (ObjectConstraint morphism a, ObjectConstraint morphism b, ObjectConstraint morphism c) => ((a `m` b) `m` c) `morphism` (a `m` (b `m` c))
-    lassoc :: (ObjectConstraint morphism a, ObjectConstraint morphism b, ObjectConstraint morphism c) => (a `m` (b `m` c)) `morphism` ((a `m` b) `m` c)
-    rleftunit :: ObjectConstraint morphism a => (e `m` a) `morphism` a
-    lleftunit :: ObjectConstraint morphism a => a `morphism` (e `m` a)
-    rrightunit :: ObjectConstraint morphism a => (a `m` e) `morphism` a
-    lrightunit :: ObjectConstraint morphism a => a `morphism` (a `m` e)
+type MonoidalCategory :: forall {k}. Morphism k -> (k -> Constraint) -> TensorProduct k -> TensorUnit k -> Constraint
+class ( Bifunctor morphism obj_constr morphism obj_constr morphism obj_constr m, Category morphism obj_constr) => MonoidalCategory morphism obj_constr m e | morphism m -> e where -- todo: remove this functional dependency by moving rassoc and lassoc to a superclass named Semicategory
+    rassoc :: (obj_constr a, obj_constr b, obj_constr c) => ((a `m` b) `m` c) `morphism` (a `m` (b `m` c))
+    lassoc :: (obj_constr a, obj_constr b, obj_constr c) => (a `m` (b `m` c)) `morphism` ((a `m` b) `m` c)
+    rleftunit :: obj_constr a => (e `m` a) `morphism` a
+    lleftunit :: obj_constr a => a `morphism` (e `m` a)
+    rrightunit :: obj_constr a => (a `m` e) `morphism` a
+    lrightunit :: obj_constr a => a `morphism` (a `m` e)
 
-type MonoidInMonoidalCategory :: forall {k}. Morphism k -> (k -> k -> k) -> k -> k -> Constraint
-class (MonoidalCategory morphism m e) => MonoidInMonoidalCategory morphism m e a | a -> m morphism where
+type MonoidInMonoidalCategory :: forall {k}. Morphism k -> (k -> Constraint) -> (k -> k -> k) -> k -> k -> Constraint
+class (MonoidalCategory morphism obj_constr m e) => MonoidInMonoidalCategory morphism obj_constr m e a | a -> m morphism where
   mu :: (a `m` a) `morphism` a
   nu :: e `morphism` a
 
@@ -143,91 +125,96 @@ type VertIdentity a = a -> a
 -- Morphism (k -> k) denotes the category of endofunctors
 -- a Monad is a monoid in the category of endofunctors where the
 -- tensor product @m@ is composition and the tensor unit @e@ is identity
-type Monad :: forall {k}. VertIdentity k -> VertComposition k k k -> Morphism (k -> k) -> (k -> k) -> Constraint
-type Monad e m morphism a = MonoidInMonoidalCategory morphism m e a
+type Monad :: forall {k}. VertIdentity k -> VertComposition k k k -> Morphism (k -> k) -> ((k -> k) -> Constraint) -> (k -> k) -> Constraint
+type Monad e m morphism obj_constr a = MonoidInMonoidalCategory morphism obj_constr m e a
 -- type Monad :: VertIdentity k -> VertComposition k k k -> Morphism (k -> k) -> (k -> k) -> Constraint
 -- class MonoidInMonoidalCategory e m morphism a => Monad e m morphism a where
 
 -- type TwoCategory :: forall {k}. Morphism k -> Morphism (k -> k) -> Constraint
 -- class (Category one_morphism, Category two_morphism) => TwoCategory one_morphism two_morphism | two_morphism -> one_morphism
 -- type TwoCategory :: forall {k}. TensorUnit k -> TensorProduct k ->  VertIdentity k -> VertComposition k k k -> Morphism k -> Morphism (k -> k) -> Constraint
--- class 
+-- class
 --     ( -- Category one_morphism
 --     --, Category two_morphism
 --       MonoidalCategory hor_e hor_p one_morphism
---     ) 
+--     )
 --     => TwoCategory hor_e hor_p vert_e vert_p (one_morphism :: k -> k -> Type) two_morphism | two_morphism -> one_morphism where
 --   rexchange :: forall (a :: k) (b :: k) (c :: k) (d :: k). ((a `hor_p` b) `vert_p` (a `hor_p` b))`one_morphism` ((a `hor_p` b) `vert_p` (a `hor_p` b))
 --   lexchange :: forall (a :: k) (b :: k) (c :: k) (d :: k). ((a `vert_p` b) `hor_p` (a `vert_p` b))`one_morphism` ((a `vert_p` b) `hor_p` (a `vert_p` b))
 
-type HomCategory :: forall {k}. Morphism k -> k -> k -> (k -> k) -> (k -> k) -> Type
-newtype HomCategory morphism a b f g = MkHomSet (f a `morphism` g b)
+type HomCategory :: forall {k}. Morphism k -> (k -> Constraint) -> k -> k -> (k -> k) -> (k -> k) -> Type
+newtype HomCategory morphism obj_constr a b f g = MkHomSet (f a `morphism` g b)
 
-class (forall a b. Category (HomCategory one_morphism a b)) => TwoCategory one_morphism two_morphism | two_morphism -> one_morphism
+-- class (forall a b. Category (HomCategory one_morphism one_obj_constr a b) one_obj_constr) => TwoCategory one_morphism one_obj_constr two_morphism two_obj_constr | two_morphism -> one_morphism
 
 
 
-class (MonoidalCategory two_morphism p e) => VertComp e p one_morphism two_morphism | two_morphism -> p one_morphism where
-  lvertComp :: Proxy two_morphism -> (ObjectConstraint one_morphism ((p f g) a), ObjectConstraint one_morphism (f (g a))) =>  (p f g) a `one_morphism` f (g a)
-  rvertComp :: Proxy two_morphism -> (ObjectConstraint one_morphism (f (g a)), ObjectConstraint one_morphism ((p f g) a)) => f (g a) `one_morphism` (p f g) a
+class (MonoidalCategory two_morphism two_obj_constr p e) => VertComp e p one_morphism one_obj_constr two_morphism two_obj_constr | two_morphism -> p one_morphism where
+  lvertComp :: Proxy two_morphism -> (one_obj_constr ((p f g) a), one_obj_constr (f (g a))) =>  (p f g) a `one_morphism` f (g a)
+  rvertComp :: Proxy two_morphism -> (one_obj_constr (f (g a)), one_obj_constr ((p f g) a)) => f (g a) `one_morphism` (p f g) a
   -- lvertComp :: Proxy two_morphism -> (p f g) a `one_morphism` f (g a)
   -- rvertComp :: Proxy two_morphism -> f (g a) `one_morphism` (p f g) a
 
-  lvertId :: Proxy two_morphism -> (ObjectConstraint one_morphism (e a), ObjectConstraint one_morphism a) => e a `one_morphism` a
-  rvertId :: Proxy two_morphism -> (ObjectConstraint one_morphism (e a), ObjectConstraint one_morphism a) => a `one_morphism` e a
+  lvertId :: Proxy two_morphism -> (one_obj_constr (e a), one_obj_constr a) => e a `one_morphism` a
+  rvertId :: Proxy two_morphism -> (one_obj_constr (e a), one_obj_constr a) => a `one_morphism` e a
 
-  lenriched :: Proxy two_morphism -> (ObjectConstraint two_morphism f, ObjectConstraint two_morphism g) => (forall a. (ObjectConstraint one_morphism (f a), ObjectConstraint one_morphism (g a)) => f a `one_morphism` g a) -> (f `two_morphism` g)
-  renriched :: Proxy two_morphism -> (ObjectConstraint two_morphism f, ObjectConstraint two_morphism g) => (f `two_morphism` g) -> (forall a. (ObjectConstraint one_morphism (f a), ObjectConstraint one_morphism (g a)) => f a `one_morphism` g a)
+  lenriched :: Proxy two_morphism -> (two_obj_constr f, two_obj_constr g) => (forall a. (one_obj_constr (f a), one_obj_constr (g a)) => f a `one_morphism` g a) -> (f `two_morphism` g)
+  renriched :: Proxy two_morphism -> (two_obj_constr f, two_obj_constr g) => (f `two_morphism` g) -> (forall a. (one_obj_constr (f a), one_obj_constr (g a)) => f a `one_morphism` g a)
 
 
-type StrictMonad :: forall {k}. VertIdentity k -> VertComposition k k k -> Morphism k -> Morphism (k -> k) -> (k -> k) -> Constraint
+type StrictMonad :: forall {k}. VertIdentity k -> VertComposition k k k -> Morphism k -> (k -> Constraint) -> Morphism (k -> k) -> ((k -> k) -> Constraint) -> (k -> k) -> Constraint
 class
     ( --forall (a :: k). Coercible (e a) a
     --, forall (a :: k). Coercible ((p m m) a) (m (m a))
     --, forall (f :: k -> k) (g :: k -> k). Coercible (f `two_morphism` g) (NatCopy one_morphism f g) -- move this constraint to the definition of TwoCategory?
     --, forall (a :: k) (b :: k) (c :: k). Coercible a b => Coercible (a `one_morphism` c) (b `one_morphism` c)  -- is this constraint related to (.#) from the profunctor module? Basically this requires that one_morphism is a newtype whose first argument must not have the nominal role, see https://hackage.haskell.org/package/base-4.18.0.0/docs/Data-Coerce.html#t:Coercible
-     Monad e p two_morphism m
-    , Category one_morphism
-    , VertComp e p one_morphism two_morphism
-    -- , TwoCategory e' p' e p one_morphism two_morphism
+     Monad e p two_morphism two_obj_constr m
+    , Category one_morphism one_obj_constr
+    , VertComp e p one_morphism one_obj_constr two_morphism two_obj_constr
+    -- , TwoCategory e' p' e p one_morphism one_obj_constr two_morphism two_obj_constr
     )
-    => StrictMonad e p one_morphism two_morphism (m :: k -> k) where
-  join :: forall a. (ObjectConstraint one_morphism (m (m a)), ObjectConstraint one_morphism (m a)) => (m (m a) `one_morphism` m a)
+    => StrictMonad e p one_morphism one_obj_constr two_morphism two_obj_constr (m :: k -> k) where
+  join :: forall a. (one_obj_constr (m (m a)), one_obj_constr (m a)) => (m (m a) `one_morphism` m a)
   -- join = coerce gg
   --   where
   --     gg :: (p m m) a `one_morphism` m a
   --     gg = coerce (mu @e @p @two_morphism @m)
-  default join :: forall a. (ObjectConstraint one_morphism (m (m a)), ObjectConstraint one_morphism (m a), ObjectConstraint one_morphism (p m m a), ObjectConstraint two_morphism m, ObjectConstraint two_morphism (p m m)) => (m (m a) `one_morphism` m a)
-  join = renriched (Proxy @two_morphism) mu . rvertComp (Proxy @two_morphism)
+  default join :: forall a. (one_obj_constr (m (m a)), one_obj_constr (m a), one_obj_constr (p m m a), two_obj_constr m, two_obj_constr (p m m)) => (m (m a) `one_morphism` m a)
+  join
+    = renriched @e @p @one_morphism @one_obj_constr @two_morphism @two_obj_constr (Proxy @two_morphism) mu
+    . rvertComp @e @p @one_morphism @one_obj_constr @two_morphism @two_obj_constr (Proxy @two_morphism)
 
-  returN :: forall a. (ObjectConstraint one_morphism a, ObjectConstraint one_morphism (m a)) => (a `one_morphism` m a)
+  returN :: forall a. (one_obj_constr a, one_obj_constr (m a)) => (a `one_morphism` m a)
   -- returN = coerce gg
   --   where
   --     gg :: e a `one_morphism` m a
   --     gg = coerce (nu @e @p @two_morphism @m)
-  default returN :: forall a. (ObjectConstraint one_morphism a, ObjectConstraint one_morphism (m a), ObjectConstraint one_morphism (e a), ObjectConstraint two_morphism m, ObjectConstraint two_morphism e) => (a `one_morphism` m a)
-  returN = renriched (Proxy @two_morphism) nu . rvertId (Proxy @two_morphism)
+  default returN :: forall a. (one_obj_constr a, one_obj_constr (m a), one_obj_constr (e a), two_obj_constr m, two_obj_constr e) => (a `one_morphism` m a)
+  returN
+    = renriched @e @p @one_morphism @one_obj_constr @two_morphism @two_obj_constr (Proxy @two_morphism) nu
+    . rvertId @e @p @one_morphism @one_obj_constr @two_morphism @two_obj_constr (Proxy @two_morphism)
 
 -- https://ncatlab.org/nlab/show/relative+monad#idea
-type RelativeMonad :: forall {i} {j}. Morphism i -> Morphism j -> (i -> j) -> (i -> j) -> Constraint
-class (Functor src_morphism tgt_morphism j, Functor src_morphism tgt_morphism m) => RelativeMonad src_morphism tgt_morphism j m | m tgt_morphism -> src_morphism, m -> j where
-  pure :: ObjectConstraint src_morphism a => j a `tgt_morphism` m a
-  (=<<) :: (ObjectConstraint src_morphism a, ObjectConstraint src_morphism b) => (j a `tgt_morphism` m b) -> (m a `tgt_morphism` m b)
+type RelativeMonad :: forall {i} {j}. Morphism i -> (i -> Constraint) -> Morphism j -> (j -> Constraint) -> (i -> j) -> (i -> j) -> Constraint
+class (Functor src_morphism src_obj_constr tgt_morphism tgt_obj_constr j, Functor src_morphism src_obj_constr tgt_morphism tgt_obj_constr m) => RelativeMonad src_morphism src_obj_constr tgt_morphism tgt_obj_constr j m | m tgt_morphism -> src_morphism, m -> j where
+  pure :: src_obj_constr a => j a `tgt_morphism` m a
+  (=<<) :: (src_obj_constr a, src_obj_constr b) => (j a `tgt_morphism` m b) -> (m a `tgt_morphism` m b)
 
 
 -- #########################################
 -- instances for the normal function type (->)
 -- #########################################
 
-instance Category (->) where
-  type ObjectConstraint (->) = Vacuous (->)
+instance Category (->) Vac where
   id = Prelude.id
   (.) = (Prelude..)
 
-type Vacuous :: Morphism i -> i -> Constraint
-class Vacuous c a
-instance Vacuous c a
+type Vacuous :: i -> Constraint
+class Vacuous a
+instance Vacuous a
 
+type Vac :: i -> Constraint
+type Vac = Vacuous
 
 -- #########################################
 -- instances for Op, the opposite category
@@ -235,8 +222,6 @@ instance Vacuous c a
 
 type Op :: Morphism k -> k -> k -> Type
 newtype Op morphism a b = Op (morphism b a)
-
-deriving via (Flip (morphism :: Morphism k)) instance Category morphism => Category (Op morphism)
 
 
 -- #########################################
@@ -246,25 +231,22 @@ deriving via (Flip (morphism :: Morphism k)) instance Category morphism => Categ
 type Flip :: (i -> j -> Type) -> j -> i -> Type
 newtype Flip p a b = Flip { runFlip :: p b a }
 
-instance Category morphism => Category (Flip morphism) where
-  type ObjectConstraint (Flip morphism) = ObjectConstraint morphism
+instance Category morphism obj_constr => Category (Flip morphism) obj_constr where
   id = Flip id
   (.) (Flip f) (Flip g) = Flip (g . f)
 
 -- #########################################
 -- MonoidalCategory with flipped tensor product
 
-instance Functor (->) Nat p => Functor (->) (->) (Flip p a) where
-  fmap f = Flip . runNat (fmap f) . runFlip
+instance Functor (->) Vac Nat NatConstr p => Functor (->) Vac (->) Vac (Flip p a) where
+  fmap f = Flip . runNat (fmap @(->) @Vac @Nat @NatConstr f) . runFlip
 
-instance
-    ( Functor (->) Nat p
-    ) => Functor (->) Nat (Flip p) where
+instance (Functor (->) Vac Nat NatConstr p) => Functor (->) Vac Nat NatConstr (Flip p) where
   fmap f = Nat (Flip . fmap f . runFlip)
 
-instance (Bifunctor (->) (->) (->) p) => Bifunctor (->) (->) (->) (Flip p) where
+instance (Bifunctor (->) Vac (->) Vac (->) Vac p) => Bifunctor (->) Vac (->) Vac (->) Vac  (Flip p) where
 
-instance MonoidalCategory (->) m e => MonoidalCategory (->) (Flip m) e where
+instance MonoidalCategory (->) Vac m e => MonoidalCategory (->) Vac (Flip m) e where
   rassoc = Flip . first Flip . lassoc . second runFlip . runFlip
   lassoc = Flip . second Flip . rassoc . first runFlip . runFlip
   rleftunit = rrightunit . runFlip
@@ -275,28 +257,20 @@ instance MonoidalCategory (->) m e => MonoidalCategory (->) (Flip m) e where
 -- #########################################
 -- MonoidalCategory instance with opposite category
 
-instance (Functor (->) (->) (p a)) => Functor (Flip (->)) (Flip (->)) (p a) where
+instance (Functor (->) Vac (->) Vac (p a)) => Functor (Flip (->)) Vac (Flip (->)) Vac (p a) where
   fmap = Flip . fmap . runFlip
 
-instance 
-    ( Functor (->) (NatTrans (->) (->)) p
-    , LiftObjConstr (Flip (->)) (NatTrans (Flip (->)) (Flip (->))) p
-    )
-    => Functor (Flip (->)) (NatTrans (Flip (->)) (Flip (->))) p
+instance (Functor (->) Vac Nat NatConstr p)
+    => Functor (Flip (->)) Vac (NatTrans (Flip (->)) Vac (Flip (->)) Vac) (Functor (Flip (->)) Vac (Flip (->)) Vac) p
     where
-  fmap f = Nat (Flip (runNat (fmap @(->) @Nat (runFlip f))))
+  fmap f = Nat (Flip (runNat (fmap @(->) @_ @Nat @_ (runFlip f))))
 
 instance
-    ( Bifunctor (->) (->) (->) p
-    , LiftObjConstr (Flip (->)) (NatTrans (Flip (->)) (Flip (->))) p
+    ( Bifunctor (->) Vac (->) Vac (->) Vac p
     )
-    => Bifunctor (Flip (->)) (Flip (->)) (Flip (->)) p
+    => Bifunctor (Flip (->)) Vac (Flip (->)) Vac (Flip (->)) Vac p
 
-instance 
-    ( MonoidalCategory (->) m e
-    , LiftObjConstr (Flip (->)) (NatTrans (Flip (->)) (Flip (->))) m
-    )
-    => MonoidalCategory (Flip (->)) m e where
+instance (MonoidalCategory (->) Vac m e) => MonoidalCategory (Flip (->)) Vac m e where
   rassoc = Flip lassoc
   lassoc = Flip rassoc
   rleftunit = Flip lleftunit
@@ -312,47 +286,44 @@ instance
 type Flip1 :: (i -> j -> k -> Type) -> j -> i -> k -> Type
 newtype Flip1 p f g a = Flip1 { runFlip1 :: p g f a }
 
-instance (Functor (->) (->) (p a b)) => Functor (->) (->) (Flip1 p b a) where
+instance (Functor (->) Vac (->) Vac (p a b)) => Functor (->) Vac (->) Vac (Flip1 p b a) where
   fmap f = Flip1 . fmap f . runFlip1
 
 instance -- first to second
-    ( ObjectConstraint Nat b
-    -- , forall a. Functor Nat Nat (p a) => Functor (->) (->) (p a b)
-    , Functor Nat NatNat p
-    , LiftObjConstr Nat Nat (Flip1 p b)
+    ( Functor (->) Vac (->) Vac b
+    , Functor Nat NatConstr NatNat NatNatConstr p
     )
-    => Functor Nat Nat (Flip1 p b) where
-  fmap f = Nat (Flip1 . runNat (runNat (fmap @Nat @NatNat f)) . runFlip1)
+    => Functor Nat NatConstr Nat NatConstr (Flip1 p b) where
+  fmap f = Nat (Flip1 . runNat (runNat (fmap @Nat @NatConstr @NatNat @NatNatConstr f)) . runFlip1)
 
 instance -- second to first
-    ( Functor Nat NatNat p
-    , LiftObjConstr2 Nat Nat Nat (Flip1 p)
+    ( Functor Nat NatConstr NatNat NatNatConstr p
     )
-    => Functor Nat NatNat (Flip1 p) where
-  fmap f = Nat (Nat (Flip1 . runNat (fmap f) . runFlip1))
+    => Functor Nat NatConstr NatNat NatNatConstr (Flip1 p) where
+  fmap f = Nat (Nat (Flip1 . runNat (fmap @Nat @NatConstr @Nat @NatConstr f) . runFlip1))
 
 instance
-    ( Bifunctor Nat Nat Nat p
+    ( Bifunctor Nat NatConstr Nat NatConstr Nat NatConstr p
     )
-    => Bifunctor Nat Nat Nat (Flip1 p) where
+    => Bifunctor Nat NatConstr Nat NatConstr Nat NatConstr (Flip1 p) where
 
 
 bimapFlippedProduct
   ::
-    ( ObjectConstraint Nat a
-    , ObjectConstraint Nat b
-    , ObjectConstraint Nat c
-    , ObjectConstraint Nat d
+    ( Functor (->) Vac (->) Vac a
+    , Functor (->) Vac (->) Vac b
+    , Functor (->) Vac (->) Vac c
+    , Functor (->) Vac (->) Vac d
     )
   => Nat a c
   -> Nat b d
   -> Nat
       (Flip1 Product a b)
       (Flip1 Product c d)
-bimapFlippedProduct = bimap @(Type -> Type) @(Type -> Type) @(Type -> Type) @Nat @Nat @Nat @(Flip1 Product)
+bimapFlippedProduct = bimap @(Type -> Type) @(Type -> Type) @(Type -> Type) @Nat @_ @Nat @_ @Nat @_ @(Flip1 Product)
 
 
-lassocFlipped2 = lassoc @(Flip (->)) @(Flip (,)) @()
+lassocFlipped2 = lassoc @(Flip (->)) @Vac @(Flip (,)) @()
 
 
 -- #########################################
@@ -360,24 +331,27 @@ lassocFlipped2 = lassoc @(Flip (->)) @(Flip (,)) @()
 -- #########################################
 
 type Nat :: Morphism (Type -> Type)
-type Nat = NatTrans (->) (->)
+type Nat = NatTrans (->) Vac (->) Vac
 
 type NatNat :: Morphism ((Type -> Type) -> (Type -> Type))
-type NatNat = NatTrans Nat Nat
-type NatNatNat = NatTrans NatNat NatNat
+type NatNat = NatTrans Nat NatConstr Nat NatConstr
+type NatNatNat = NatTrans NatNat NatNatConstr NatNat NatNatConstr
 
-type NatTrans :: forall {i} {k}. Morphism i -> Morphism k -> Morphism (i -> k)
-data NatTrans src_morphism tgt_morphism f g where
-  -- Nat :: (Functor src_morphism tgt_morphism f, Functor src_morphism tgt_morphism g) => { runNat :: forall a. ObjectConstraint src_morphism a => tgt_morphism (f a) (g a) } -> NatTrans src_morphism tgt_morphism f g
-  Nat :: Functor src_morphism tgt_morphism f => { runNat :: forall a. ObjectConstraint src_morphism a => tgt_morphism (f a) (g a) } -> NatTrans src_morphism tgt_morphism f g
-  -- Nat :: { runNat :: forall a. ObjectConstraint morphism a => morphism (f a) (g a) } -> NatTrans morphism f g
+type NatConstr = Functor (->) Vac (->) Vac
+type NatNatConstr = Functor Nat NatConstr Nat NatConstr
+type NatNatNatConstr = Functor NatNat NatNatConstr NatNat NatNatConstr
 
-instance (Category src_morphism, Category tgt_morphism) => Category (NatTrans (src_morphism :: Morphism i) (tgt_morphism :: Morphism k) :: Morphism (i -> k)) where
-  type ObjectConstraint (NatTrans src_morphism tgt_morphism) = Functor src_morphism tgt_morphism
+type NatTrans :: forall {i} {k}. Morphism i -> (i -> Constraint) -> Morphism k -> (k -> Constraint) -> Morphism (i -> k)
+data NatTrans src_morphism src_obj_constr tgt_morphism tgt_obj_constr f g where
+  -- Nat :: (Functor src_morphism tgt_morphism f, Functor src_morphism tgt_morphism g) => { runNat :: forall a. src_obj_constr a => tgt_morphism (f a) (g a) } -> NatTrans src_morphism tgt_morphism f g
+  Nat :: Functor src_morphism src_obj_constr tgt_morphism tgt_obj_constr f => { runNat :: forall a. src_obj_constr a => tgt_morphism (f a) (g a) } -> NatTrans src_morphism src_obj_constr tgt_morphism tgt_obj_constr f g
+  -- Nat :: { runNat :: forall a. obj_constr a => morphism (f a) (g a) } -> NatTrans morphism f g
+
+instance (Category src_morphism src_obj_constr, Category tgt_morphism tgt_obj_constr) => Category (NatTrans (src_morphism :: Morphism i) src_obj_constr (tgt_morphism :: Morphism k) tgt_obj_constr :: Morphism (i -> k)) (Functor src_morphism src_obj_constr tgt_morphism tgt_obj_constr) where
   id = Nat id
   (.) (Nat f) (Nat g) = Nat (f . g)
 
-instance MonoidalCategory Nat Compose Identity where
+instance MonoidalCategory Nat NatConstr Compose Identity where
   -- in case of the assoc and rightunit conversions we need to utilize the Functor instance of the most outer functor, because the role of its type argument could be nominal
   rassoc = Nat (Compose . fmap Compose . getCompose . getCompose)
   lassoc =  Nat (Compose . Compose . fmap getCompose . getCompose)
@@ -386,7 +360,7 @@ instance MonoidalCategory Nat Compose Identity where
   rrightunit = Nat (fmap runIdentity . getCompose)
   lrightunit = Nat (Compose . fmap Identity)
 
-instance VertComp Identity Compose (->) Nat where
+instance VertComp Identity Compose (->) Vac Nat NatConstr where
   lvertComp _ = getCompose
   rvertComp _ = Compose
   lvertId _ = runIdentity
@@ -399,16 +373,16 @@ instance VertComp Identity Compose (->) Nat where
 -- instances for Compose
 -- #########################################
 
-instance (Functor (->) (->) f, Functor (->) (->) g) => Functor (->) (->) (Compose f g) where
-  fmap f = Compose . fmap (fmap @(->) @(->) f) . getCompose
+instance (Functor (->) Vac (->) Vac f, Functor (->) Vac (->) Vac g) => Functor (->) Vac (->) Vac (Compose f g) where
+  fmap f = Compose . fmap (fmap @(->) @_ @(->) @_ f) . getCompose
 
-instance Functor (->) (->) t => Functor Nat Nat (Compose t) where
+instance Functor (->) Vac (->) Vac t => Functor Nat NatConstr Nat NatConstr (Compose t) where
   fmap (Nat f) = Nat (Compose . fmap f . getCompose)
 
-instance Functor Nat NatNat Compose where
+instance Functor Nat NatConstr NatNat NatNatConstr Compose where
   fmap (Nat f) = Nat (Nat (Compose . f . getCompose))
 
-instance Bifunctor Nat Nat Nat Compose where
+instance Bifunctor Nat NatConstr Nat NatConstr Nat NatConstr Compose where
   bimap (Nat f) (Nat g) = Nat (Compose . f . fmap g . getCompose)
   first (Nat f) = Nat (Compose . f . getCompose)
 
@@ -417,7 +391,7 @@ instance Bifunctor Nat Nat Nat Compose where
 -- instances for Identity
 -- #########################################
 
-instance Functor (->) (->) Identity where
+instance Functor (->) Vac (->) Vac Identity where
   fmap f (Identity x) = Identity (f x)
 
 
@@ -425,10 +399,10 @@ instance Functor (->) (->) Identity where
 -- definition of transformations of natural transformation (NatNat) and its Category instance
 -- #########################################
 
-fmap2 :: forall f a b. (Functor Nat Nat f, Functor (->) (->) a,  Functor (->) (->) b) => (forall x. a x -> b x) -> (forall x. f a x -> f b x)
-fmap2 f = runNat (fmap @Nat @Nat @f @a @b (Nat f))
+fmap2 :: forall f a b. (Functor Nat NatConstr Nat NatConstr f, Functor (->) Vac (->) Vac a,  Functor (->) Vac (->) Vac b) => (forall x. a x -> b x) -> (forall x. f a x -> f b x)
+fmap2 f = runNat (fmap @Nat @NatConstr @Nat @NatConstr @f @a @b (Nat f))
 
-instance MonoidalCategory NatNat ComposeT IdentityT where
+instance MonoidalCategory NatNat NatNatConstr ComposeT IdentityT where
   rassoc = Nat (Nat (ComposeT . fmap2 ComposeT . getComposeT . getComposeT))
   lassoc = Nat (Nat (ComposeT . ComposeT . fmap2 getComposeT . getComposeT))
   rleftunit = Nat (Nat (runIdentityT . getComposeT))
@@ -436,7 +410,7 @@ instance MonoidalCategory NatNat ComposeT IdentityT where
   rrightunit = Nat (Nat (fmap2 runIdentityT . getComposeT))
   lrightunit = Nat (Nat (ComposeT . fmap2 IdentityT))
 
-instance VertComp IdentityT ComposeT Nat NatNat where
+instance VertComp IdentityT ComposeT Nat NatConstr NatNat NatNatConstr where
   lvertComp _ = Nat getComposeT
   rvertComp _ = Nat ComposeT
   lvertId _ = Nat runIdentityT
@@ -449,20 +423,20 @@ instance VertComp IdentityT ComposeT Nat NatNat where
 -- instances for ComposeT
 -- #########################################
 
-instance Functor (->) (->) (f (g a)) => Functor (->) (->) (ComposeT f g a) where
+instance Functor (->) Vac (->) Vac (f (g a)) => Functor (->) Vac (->) Vac (ComposeT f g a) where
   fmap :: forall x y. (x -> y) -> ComposeT f g a x -> ComposeT f g a y
-  fmap = coerce (fmap @(->) @(->) @(f (g a)) @x @y)
+  fmap = coerce (fmap @(->) @Vac @(->) @Vac @(f (g a)) @x @y)
 
-instance (Functor Nat Nat f, Functor Nat Nat g) => Functor Nat Nat (ComposeT f g) where
+instance (Functor Nat NatConstr Nat NatConstr f, Functor Nat NatConstr Nat NatConstr g) => Functor Nat NatConstr Nat NatConstr (ComposeT f g) where
   fmap (Nat f) = Nat (\(ComposeT x) -> ComposeT (fmap2 (fmap2 f) x))
 
-instance Functor Nat Nat z => Functor NatNat NatNat (ComposeT z) where
+instance Functor Nat NatConstr Nat NatConstr z => Functor NatNat NatNatConstr NatNat NatNatConstr (ComposeT z) where
   fmap (Nat f) = Nat (Nat (ComposeT . fmap2 (runNat f) . getComposeT))
 
-instance Functor NatNat NatNatNat ComposeT where
+instance Functor NatNat NatNatConstr NatNatNat NatNatNatConstr ComposeT where
   fmap (Nat f) = Nat (Nat (Nat (ComposeT . runNat f . getComposeT)))
 
-instance Bifunctor NatNat NatNat NatNat ComposeT where
+instance Bifunctor NatNat NatNatConstr NatNat NatNatConstr NatNat NatNatConstr ComposeT where
   bimap (Nat f) (Nat g) = Nat (Nat (ComposeT . runNat f . fmap2 (runNat g) . getComposeT))
   first (Nat f) = Nat (Nat (ComposeT . runNat f . getComposeT))
 
@@ -471,28 +445,28 @@ instance Bifunctor NatNat NatNat NatNat ComposeT where
 -- instances for IdentityT
 -- #########################################
 
-instance Functor Nat Nat IdentityT where
+instance Functor Nat NatConstr Nat NatConstr IdentityT where
   fmap (Nat f) = Nat (IdentityT . f . runIdentityT)
 
-instance Functor (->) (->) f => Functor (->) (->) (IdentityT f) where
-  fmap func = coerce (fmap @(->) @(->) @f func)
+instance Functor (->) Vac (->) Vac f => Functor (->) Vac (->) Vac (IdentityT f) where
+  fmap func = coerce (fmap @(->) @_ @(->) @_ @f func)
 
 
 -- #########################################
 -- monoidal category instances for (,) in the category (->)
 -- #########################################
 
-instance Functor (->) (->) ((,) a) where
+instance Functor (->) Vac (->) Vac ((,) a) where
   fmap = Prelude.fmap
 
-instance Functor (->) Nat (,) where
+instance Functor (->) Vac Nat NatConstr (,) where
   fmap f = Nat (Base.Bifunctor.first f)
 
-instance Bifunctor (->) (->) (->) (,) where
+instance Bifunctor (->) Vac (->) Vac (->) Vac (,) where
   bimap = Base.Bifunctor.bimap
   first = Base.Bifunctor.first
 
-instance MonoidalCategory (->) (,) () where
+instance MonoidalCategory (->) Vac (,) () where
   rassoc ((a, b), c) = (a, (b, c))
   lassoc (a, (b, c)) = ((a, b), c)
   rleftunit ((), a) = a
@@ -505,17 +479,17 @@ instance MonoidalCategory (->) (,) () where
 -- monoidal category instances for Either in the category (->)
 -- #########################################
 
-instance Functor (->) (->) (Either a) where
+instance Functor (->) Vac (->) Vac (Either a) where
   fmap = Prelude.fmap
 
-instance Functor (->) Nat Either where
+instance Functor (->) Vac Nat NatConstr Either where
   fmap f = Nat (Base.Bifunctor.first f)
 
-instance Bifunctor (->) (->) (->) Either where
+instance Bifunctor (->) Vac (->) Vac (->) Vac Either where
   bimap = Base.Bifunctor.bimap
   first = Base.Bifunctor.first
 
-instance MonoidalCategory (->) Either Void where
+instance MonoidalCategory (->) Vac Either Void where
   rassoc = \case
     Left (Left a)  -> Left a
     Left (Right b) -> Right (Left b)
@@ -534,23 +508,23 @@ instance MonoidalCategory (->) Either Void where
 -- monoidal category instances for Product in the category Nat
 -- #########################################
 
-instance (Functor (->) (->) f, Functor (->) (->) g) => Functor (->) (->) (Product f g) where
+instance (Functor (->) Vac (->) Vac f, Functor (->) Vac (->) Vac g) => Functor (->) Vac (->) Vac (Product f g) where
   fmap f (Pair fa ga) = Pair (fmap f fa) (fmap f ga)
 
-instance (Functor (->) (->) a) => Functor Nat Nat (Product a) where
+instance (Functor (->) Vac (->) Vac a) => Functor Nat NatConstr Nat NatConstr (Product a) where
   fmap (Nat f) = Nat (\(Pair x y) -> Pair x (f y))
 
-instance Functor Nat NatNat Product where
+instance Functor Nat NatConstr NatNat NatNatConstr Product where
   fmap (Nat f) = Nat (Nat (\(Pair x y) -> Pair (f x) y))
 
-instance Bifunctor Nat Nat Nat Product where
+instance Bifunctor Nat NatConstr Nat NatConstr Nat NatConstr Product where
   bimap (Nat f) (Nat g) = Nat (\(Pair x y) -> Pair (f x) (g y))
   first (Nat f) = Nat (\(Pair x y) -> Pair (f x) y)
 
-instance Functor (->) (->) Proxy where
+instance Functor (->) Vac (->) Vac Proxy where
   fmap _f Proxy = Proxy
 
-instance MonoidalCategory Nat Product Proxy where
+instance MonoidalCategory Nat NatConstr Product Proxy where
   rassoc = Nat (\(Pair (Pair a b) c) -> Pair a (Pair b c))
   lassoc = Nat (\(Pair a (Pair b c)) -> Pair (Pair a b) c)
   rleftunit = Nat (\(Pair Proxy a) -> a)
@@ -563,22 +537,22 @@ instance MonoidalCategory Nat Product Proxy where
 -- monoidal category instances for Sum in the category Nat
 -- #########################################
 
-instance (Functor (->) (->) f, Functor (->) (->) g) => Functor (->) (->) (Sum f g) where
+instance (Functor (->) Vac (->) Vac f, Functor (->) Vac (->) Vac g) => Functor (->) Vac (->) Vac (Sum f g) where
   fmap f = \case
     InL fa -> InL (fmap f fa)
     InR ga -> InR (fmap f ga)
 
-instance (Functor (->) (->) a) => Functor Nat Nat (Sum a) where
+instance (Functor (->) Vac (->) Vac a) => Functor Nat NatConstr Nat NatConstr (Sum a) where
   fmap (Nat f) = Nat (\case
     InL ax -> InL ax
     InR bx -> InR (f bx))
 
-instance Functor Nat NatNat Sum where
+instance Functor Nat NatConstr NatNat NatNatConstr Sum where
   fmap (Nat f) = Nat (Nat (\case
     InL ax -> InL (f ax)
     InR bx -> InR bx))
 
-instance Bifunctor Nat Nat Nat Sum where
+instance Bifunctor Nat NatConstr Nat NatConstr Nat NatConstr Sum where
   bimap (Nat f) (Nat g) = Nat (\case
     InL ax -> InL (f ax)
     InR bx -> InR (g bx))
@@ -591,10 +565,10 @@ data Void1 a
 absurd1 :: Void1 x -> b
 absurd1 v = case v of {}
 
-instance Functor (->) (->) Void1 where
+instance Functor (->) Vac (->) Vac Void1 where
   fmap _f = absurd1
 
-instance MonoidalCategory Nat Sum Void1 where
+instance MonoidalCategory Nat NatConstr Sum Void1 where
   rassoc = Nat (\case
     InL (InL a) -> InL a
     InL (InR b) -> InR (InL b)
@@ -617,27 +591,27 @@ instance MonoidalCategory Nat Sum Void1 where
 -- instances for familiar Monads such as Maybe or IO
 -- #########################################
 
-instance Prelude.Monad m => Functor (->) (->) (Control.Applicative.WrappedMonad m) where
+instance Prelude.Monad m => Functor (->) Vac (->) Vac (Control.Applicative.WrappedMonad m) where
   fmap = Prelude.fmap . coerce
-instance Prelude.Monad m => MonoidInMonoidalCategory Nat Compose Identity (Control.Applicative.WrappedMonad m) where
+instance Prelude.Monad m => MonoidInMonoidalCategory Nat NatConstr Compose Identity (Control.Applicative.WrappedMonad m) where
   mu = Nat (Control.Monad.join . coerce)
   nu = Nat (Prelude.return . coerce)
 
-instance Prelude.Monad m => StrictMonad Identity Compose (->) Nat (Control.Applicative.WrappedMonad m)
+instance Prelude.Monad m => StrictMonad Identity Compose (->) Vac Nat NatConstr (Control.Applicative.WrappedMonad m)
 
-instance Functor (->) (->) IO where
+instance Functor (->) Vac (->) Vac IO where
   fmap = Prelude.fmap . coerce
-instance MonoidInMonoidalCategory Nat Compose Identity IO where
+instance MonoidInMonoidalCategory Nat NatConstr Compose Identity IO where
   mu = Nat (Control.Monad.join . coerce)
   nu = Nat (Prelude.return . coerce)
-instance StrictMonad Identity Compose (->) Nat IO
+instance StrictMonad Identity Compose (->) Vac Nat NatConstr IO
 
-instance Functor (->) (->) Maybe where
+instance Functor (->) Vac (->) Vac Maybe where
   fmap = Prelude.fmap . coerce
-instance MonoidInMonoidalCategory Nat Compose Identity Maybe where
+instance MonoidInMonoidalCategory Nat NatConstr Compose Identity Maybe where
   mu = Nat (Control.Monad.join . coerce)
   nu = Nat (Prelude.return . coerce)
-instance StrictMonad Identity Compose (->) Nat Maybe
+instance StrictMonad Identity Compose (->) Vac Nat NatConstr Maybe
 
 
 -- #########################################
@@ -647,25 +621,25 @@ instance StrictMonad Identity Compose (->) Nat Maybe
 -- flips type parameters m and f
 newtype StreamFlip m f r = MkStreamFlip { getStream :: Stream f m r }
 
-instance (Functor (->) (->) f, Prelude.Monad m) => Functor (->) (->) (StreamFlip m f) where
-  fmap = coerce (fmap @(->) @(->) @(Stream f m))
+instance (Functor (->) Vac (->) Vac f, Prelude.Monad m) => Functor (->) Vac (->) Vac (StreamFlip m f) where
+  fmap = coerce (fmap @(->) @_ @(->) @_ @(Stream f m))
 
-instance (Prelude.Monad m) => Functor Nat Nat (StreamFlip m) where
+instance (Prelude.Monad m) => Functor Nat NatConstr Nat NatConstr (StreamFlip m) where
   fmap (Nat f) = Nat (coerce (maps @m f))
 
-instance (Prelude.Monad m) => RelativeMonad Nat Nat IdentityT (StreamFlip m) where
+instance (Prelude.Monad m) => RelativeMonad Nat NatConstr Nat NatConstr IdentityT (StreamFlip m) where
   pure = Nat (coerce yields)
   (=<<) (Nat f) = Nat (coerce (concats @_ @m . maps @m @_ @(Stream _ m) (coerce f)))
 
-instance (Functor (->) (->) f, Prelude.Monad m) => MonoidInMonoidalCategory Nat Compose Identity (StreamFlip m f) where
+instance (Functor (->) Vac (->) Vac f, Prelude.Monad m) => MonoidInMonoidalCategory Nat NatConstr Compose Identity (StreamFlip m f) where
   mu = Nat (MkStreamFlip . joinStream . fmap getStream . getStream . getCompose)
   nu = Nat (MkStreamFlip . Return . runIdentity)
 
-instance (Prelude.Monad m) => MonoidInMonoidalCategory NatNat ComposeT IdentityT (StreamFlip m) where
+instance (Prelude.Monad m) => MonoidInMonoidalCategory NatNat NatNatConstr ComposeT IdentityT (StreamFlip m) where
   mu = Nat (Nat (coerce (concats . maps coerce)))
   nu = Nat (Nat (coerce yields))
 
-instance (Prelude.Monad m) => StrictMonad IdentityT ComposeT Nat NatNat (StreamFlip m) where
+instance (Prelude.Monad m) => StrictMonad IdentityT ComposeT Nat NatConstr NatNat NatNatConstr (StreamFlip m) where
 
 
 -- #########################################
@@ -675,7 +649,7 @@ instance (Prelude.Monad m) => StrictMonad IdentityT ComposeT Nat NatNat (StreamF
 
 -- Functor instance
 
-instance (Functor (->) (->) f, Prelude.Monad m) => Functor (->) (->) (Stream f m) where
+instance (Functor (->) Vac (->) Vac f, Prelude.Monad m) => Functor (->) Vac (->) Vac (Stream f m) where
   fmap f = loop where
     loop stream = case stream of
       Return r -> Return (f r)
@@ -685,9 +659,9 @@ instance (Functor (->) (->) f, Prelude.Monad m) => Functor (->) (->) (Stream f m
 
 
 -- copypasted definitions that were changed to
--- require Functor (->) (->) f instead of Prelude.Functor f
+-- require Functor (->) Vac (->) Vac f instead of Prelude.Functor f
 
-maps :: (Prelude.Monad m, Functor (->) (->) f) => (forall x. f x -> g x) -> Stream f m r -> Stream g m r
+maps :: (Prelude.Monad m, Functor (->) Vac (->) Vac f) => (forall x. f x -> g x) -> Stream f m r -> Stream g m r
 maps phi = loop where
   loop stream = case stream of
     Return r -> Return r
@@ -695,7 +669,7 @@ maps phi = loop where
     Step   f -> Step (phi (fmap loop f))
 {-# INLINABLE maps #-}
 
-concats :: forall f m r. (Prelude.Monad m, Functor (->) (->) f) => Stream (Stream f m) m r -> Stream f m r
+concats :: forall f m r. (Prelude.Monad m, Functor (->) Vac (->) Vac f) => Stream (Stream f m) m r -> Stream f m r
 concats = loop where
   loop :: Stream (Stream f m) m r -> Stream f m r
   loop stream = case stream of
@@ -704,7 +678,7 @@ concats = loop where
     Step fs  -> fs `bindStream` loop
 {-# INLINE concats #-}
 
-bindStream :: (Prelude.Monad m, Functor (->) (->) f) => Stream f m t -> (t -> Stream f m r) -> Stream f m r
+bindStream :: (Prelude.Monad m, Functor (->) Vac (->) Vac f) => Stream f m t -> (t -> Stream f m r) -> Stream f m r
 stream `bindStream` f =
   loop stream where
   loop stream0 = case stream0 of
@@ -713,9 +687,9 @@ stream `bindStream` f =
     Return r  -> f r
 {-# INLINABLE bindStream #-}
 
-joinStream :: (Prelude.Monad m, Functor (->) (->) f) => Stream f m (Stream f m r) -> Stream f m r
+joinStream :: (Prelude.Monad m, Functor (->) Vac (->) Vac f) => Stream f m (Stream f m r) -> Stream f m r
 joinStream stream = bindStream stream id
 
-yields :: (Prelude.Monad m, Functor (->) (->) f) => f r -> Stream f m r
+yields :: (Prelude.Monad m, Functor (->) Vac (->) Vac f) => f r -> Stream f m r
 yields fr = Step (fmap Return fr)
 {-# INLINE yields #-}
