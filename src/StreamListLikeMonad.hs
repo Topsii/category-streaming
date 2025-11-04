@@ -144,11 +144,11 @@ type Monad e m morphism a = MonoidInMonoidalCategory morphism m e a
 -- type TwoCategory :: forall {k}. Morphism k -> Morphism (k -> k) -> Constraint
 -- class (Category one_morphism, Category two_morphism) => TwoCategory one_morphism two_morphism | two_morphism -> one_morphism
 -- type TwoCategory :: forall {k}. TensorUnit k -> TensorProduct k ->  VertIdentity k -> VertComposition k k k -> Morphism k -> Morphism (k -> k) -> Constraint
--- class 
+-- class
 --     ( -- Category one_morphism
 --     --, Category two_morphism
 --       MonoidalCategory hor_e hor_p one_morphism
---     ) 
+--     )
 --     => TwoCategory hor_e hor_p vert_e vert_p (one_morphism :: k -> k -> Type) two_morphism | two_morphism -> one_morphism where
 --   rexchange :: forall (a :: k) (b :: k) (c :: k) (d :: k). ((a `hor_p` b) `vert_p` (a `hor_p` b))`one_morphism` ((a `hor_p` b) `vert_p` (a `hor_p` b))
 --   lexchange :: forall (a :: k) (b :: k) (c :: k) (d :: k). ((a `vert_p` b) `hor_p` (a `vert_p` b))`one_morphism` ((a `vert_p` b) `hor_p` (a `vert_p` b))
@@ -271,7 +271,7 @@ instance MonoidalCategory (->) m e => MonoidalCategory (->) (Flip m) e where
 instance (Functor (->) (->) (p a)) => Functor (Flip (->)) (Flip (->)) (p a) where
   fmap = Flip . fmap . runFlip
 
-instance 
+instance
     ( Functor (->) (NatTrans (->) (->)) p
     )
     => Functor (Flip (->)) (NatTrans (Flip (->)) (Flip (->))) p
@@ -283,7 +283,7 @@ instance
     )
     => Bifunctor (Flip (->)) (Flip (->)) (Flip (->)) p
 
-instance 
+instance
     ( MonoidalCategory (->) m e
     )
     => MonoidalCategory (Flip (->)) m e where
