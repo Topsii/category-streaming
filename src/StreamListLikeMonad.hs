@@ -158,7 +158,11 @@ newtype HomCategory morphism a b f g = MkHomSet (f a `morphism` g b)
 
 class (forall a b. Category (HomCategory one_morphism a b)) => TwoCategory one_morphism two_morphism | two_morphism -> one_morphism
 
-
+{-
+Approach this via Bicategory instead of 2-Category?
+https://stackoverflow.com/questions/25210743/bicategories-in-haskell
+TODO: look at https://sjoerdvisscher.github.io/proarrow/Proarrow-Category-Bicategory.html
+-}
 
 class (MonoidalCategory two_morphism p e) => VertComp e p one_morphism two_morphism | two_morphism -> p one_morphism where
   lvertComp :: Proxy two_morphism -> (ObjectConstraint one_morphism ((p f g) a), ObjectConstraint one_morphism (f (g a))) =>  (p f g) a `one_morphism` f (g a)
