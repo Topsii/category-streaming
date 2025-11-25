@@ -7,7 +7,7 @@
 - https://hackage.haskell.org/package/categories
 - https://hackage.haskell.org/package/hask
 
-### Functor/Applicative/Monad/Traversable etc. for a nonstandard category
+### Functor/Applicative/Monad/Traversable etc. specialized to nonstandard categories
 
 | Package                                                                                                                                                                                                                                                | Naming                                                                      | Source Category                                                                                              | Target Category       |
 |--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------|-----------------------|
