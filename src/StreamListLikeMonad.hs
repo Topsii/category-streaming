@@ -515,6 +515,11 @@ instance Category MonadMorphism where
   id = MonadMorphism id
   (.) (MonadMorphism f) (MonadMorphism g) = MonadMorphism (f . g)
 
+instance Category (Transformation MonadMorphism Nat) where
+  type ObjectConstraint (Transformation MonadMorphism Nat) = Functor MonadMorphism Nat
+  id = Trans id
+  (.) (Trans f) (Trans g) = Trans (f . g)
+
 
 -- #########################################
 -- instances for Compose
@@ -768,11 +773,19 @@ instance StrictMonad Identity Compose (->) Nat Maybe
 instance (Functor (->) (->) f, AuxMonad m) => Functor (->) (->) (Stream f m) where
   fmap = fmapStream
 
-instance Functor Nat (NatTrans MonadMorphism Nat) Stream where
-  fmap (Nat f) = Nat (Nat (maps f))
+instance (Functor (->) (->) f, AuxMonad m) => MonoidInMonoidalCategory Nat Compose Identity (Stream f m) where
+  mu = Nat (joinStream . getCompose)
+  nu = Nat (Return . runIdentity)
+
+instance Functor Nat (Transformation MonadMorphism Nat) Stream where
+  fmap (Nat f) = Trans (Nat (maps f))
 
 instance Functor (->) (->) f => Functor MonadMorphism Nat (Stream f) where
   fmap (MonadMorphism f) = Nat (hoistStream f)
+
+instance Bifunctor Nat MonadMorphism Nat Stream where
+  first (Nat f) = Nat (maps f)
+  bimap (Nat f) (MonadMorphism g) = Nat (mapsHoistStream f g)
 
 instance (AuxMonad m) => RelativeMonad Nat Nat IdentityT (Flip1 Stream m) where
   pure = Nat (coerce yields)
@@ -792,7 +805,7 @@ instance (Functor (->) (->) (Stream f m)) => Functor (->) (->) (Flip1 Stream m f
 
 -- first to second
 instance (AuxMonad m) => Functor Nat Nat (Flip1 Stream m) where
-  fmap f = Nat (Flip1 . runNat (runNat (fmap @Nat @(NatTrans MonadMorphism Nat) f)) . runFlip1)
+  fmap f = Nat (Flip1 . runNat (runTrans (fmap @Nat @(Transformation MonadMorphism Nat) f)) . runFlip1)
   -- fmap f = Nat (Flip1 . maps (runNat f) . runFlip1)
 
 instance (AuxMonad m) => MonoidInMonoidalCategory NatNat ComposeT IdentityT (Flip1 Stream m) where
@@ -800,6 +813,14 @@ instance (AuxMonad m) => MonoidInMonoidalCategory NatNat ComposeT IdentityT (Fli
   nu = Nat (Nat (coerce yields))
 
 instance (AuxMonad m) => StrictMonad IdentityT ComposeT Nat NatNat (Flip1 Stream m) where
+
+ -- second to first
+instance Functor MonadMorphism (Transformation Nat Nat) (Flip1 Stream) where
+  fmap (MonadMorphism f) = Trans (Nat (Flip1 . hoistStream f . runFlip1))
+
+instance Bifunctor MonadMorphism Nat Nat (Flip1 Stream) where
+  first (MonadMorphism f) = Nat (Flip1 . hoistStream f . runFlip1)
+  bimap (MonadMorphism f) (Nat g) = Nat (Flip1 . mapsHoistStream g f . runFlip1)
 
 
 -- #########################################
@@ -877,3 +898,11 @@ hoistStream trans = loop where
     Effect m -> Effect (trans (fmap loop m))
     Step f   -> Step (fmap loop f)
 {-# INLINABLE hoistStream #-}
+
+mapsHoistStream :: (AuxMonad m, Functor (->) (->) f) => (forall x. f x -> g x) -> (forall x. m x -> n x) -> Stream f m r -> Stream g n r
+mapsHoistStream phi trans = loop where
+  loop stream = case stream of
+    Return r -> Return r
+    Effect m -> Effect (trans (fmap loop m))
+    Step g   -> Step (phi (fmap loop g))
+{-# INLINABLE mapsHoistStream #-}
