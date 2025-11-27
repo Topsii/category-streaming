@@ -360,7 +360,10 @@ type NatNatNat = NatTrans NatNat NatNat
 type NatTrans :: forall {i} {k}. Morphism i -> Morphism k -> Morphism (i -> k)
 data NatTrans src_morphism tgt_morphism f g where
   -- Nat :: (Functor src_morphism tgt_morphism f, Functor src_morphism tgt_morphism g) => { runNat :: forall a. ObjectConstraint src_morphism a => tgt_morphism (f a) (g a) } -> NatTrans src_morphism tgt_morphism f g
-  Nat :: Functor src_morphism tgt_morphism f => { runNat :: forall a. ObjectConstraint src_morphism a => tgt_morphism (f a) (g a) } -> NatTrans src_morphism tgt_morphism f g
+  Nat
+    :: Functor src_morphism tgt_morphism f
+    => { runNat :: forall a. ObjectConstraint src_morphism a => tgt_morphism (f a) (g a) }
+    -> NatTrans src_morphism tgt_morphism f g
   -- Nat :: { runNat :: forall a. ObjectConstraint morphism a => morphism (f a) (g a) } -> NatTrans morphism f g
 
 instance (Category src_morphism, Category tgt_morphism) => Category (NatTrans (src_morphism :: Morphism i) (tgt_morphism :: Morphism k) :: Morphism (i -> k)) where
