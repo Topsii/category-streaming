@@ -17,10 +17,10 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
 {-# LANGUAGE DefaultSignatures #-}
-{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE QualifiedDo #-}
 
 module StreamListLikeMonad where
 import Prelude (IO, putStrLn, undefined)
@@ -490,6 +490,21 @@ instance VertComp Identity Compose (->) Nat where
   lenriched _ f = Nat f
   renriched _ f = runNat f
 
+type MonadMorphism :: Morphism (Type -> Type)
+type MonadMorphism = MonadMorphism' (->)
+
+type MonadMorphism' :: forall {i}. Morphism i -> Morphism (i -> i)
+data MonadMorphism' morphism f g where
+  MonadMorphism
+    :: (morphism ~ (->), AuxMonad f) => { runMonadMorphism :: forall a. ObjectConstraint morphism a
+    => morphism (f a) (g a) }
+    -> MonadMorphism' morphism f g
+
+instance Category MonadMorphism where
+  type ObjectConstraint MonadMorphism = AuxMonad
+  id = MonadMorphism id
+  (.) (MonadMorphism f) (MonadMorphism g) = MonadMorphism (f . g)
+
 
 -- #########################################
 -- instances for Compose
@@ -745,81 +760,118 @@ instance StrictMonad Identity Compose (->) Nat Maybe
 
 
 -- #########################################
--- definition of StreamFlip and its instances
+-- instances for Stream
 -- #########################################
 
--- flips type parameters m and f
-newtype StreamFlip m f r = MkStreamFlip { getStream :: Stream f m r }
+instance (Functor (->) (->) f, AuxMonad m) => Functor (->) (->) (Stream f m) where
+  fmap = fmapStream
 
-instance (Functor (->) (->) f, Prelude.Monad m) => Functor (->) (->) (StreamFlip m f) where
-  fmap = coerce (fmap @(->) @(->) @(Stream f m))
+instance Functor Nat (NatTrans MonadMorphism Nat) Stream where
+  fmap (Nat f) = Nat (Nat (maps f))
 
-instance (Prelude.Monad m) => Functor Nat Nat (StreamFlip m) where
-  fmap (Nat f) = Nat (coerce (maps @m f))
+instance Functor (->) (->) f => Functor MonadMorphism Nat (Stream f) where
+  fmap (MonadMorphism f) = Nat (hoistStream f)
 
-instance (Prelude.Monad m) => RelativeMonad Nat Nat IdentityT (StreamFlip m) where
+instance (AuxMonad m) => RelativeMonad Nat Nat IdentityT (Flip1 Stream m) where
   pure = Nat (coerce yields)
   (=<<) (Nat f) = Nat (coerce (concats @_ @m . maps @m @_ @(Stream _ m) (coerce f)))
 
-instance (Functor (->) (->) f, Prelude.Monad m) => MonoidInMonoidalCategory Nat Compose Identity (StreamFlip m f) where
-  mu = Nat (MkStreamFlip . joinStream . fmap getStream . getStream . getCompose)
-  nu = Nat (MkStreamFlip . Return . runIdentity)
+instance (Functor (->) (->) f, AuxMonad m) => MonoidInMonoidalCategory Nat Compose Identity (Flip1 Stream m f) where
+  mu = Nat (Flip1 . joinStream . fmap runFlip1 . runFlip1 . getCompose)
+  nu = Nat (Flip1 . Return . runIdentity)
 
-instance (Prelude.Monad m) => MonoidInMonoidalCategory NatNat ComposeT IdentityT (StreamFlip m) where
+
+-- #########################################
+-- instances for Flip1 Stream
+-- #########################################
+
+instance (Functor (->) (->) (Stream f m)) => Functor (->) (->) (Flip1 Stream m f) where
+  fmap f = Flip1 . fmap f . runFlip1
+
+-- first to second
+instance (AuxMonad m) => Functor Nat Nat (Flip1 Stream m) where
+  fmap f = Nat (Flip1 . runNat (runNat (fmap @Nat @(NatTrans MonadMorphism Nat) f)) . runFlip1)
+  -- fmap f = Nat (Flip1 . maps (runNat f) . runFlip1)
+
+instance (AuxMonad m) => MonoidInMonoidalCategory NatNat ComposeT IdentityT (Flip1 Stream m) where
   mu = Nat (Nat (coerce (concats . maps coerce)))
   nu = Nat (Nat (coerce yields))
 
-instance (Prelude.Monad m) => StrictMonad IdentityT ComposeT Nat NatNat (StreamFlip m) where
+instance (AuxMonad m) => StrictMonad IdentityT ComposeT Nat NatNat (Flip1 Stream m) where
+
+
+-- #########################################
+-- definitions for AuxMonad
+-- #########################################
+
+-- temporary class that requires both Monad from Prelude as well as Functor from this module
+-- will hopefully be superseeded by a Monad class defined in this module, which will require Functor from this module
+class (MonoidInMonoidalCategory Nat Compose Identity m, Functor (->) (->) m) => AuxMonad m
+instance (MonoidInMonoidalCategory Nat Compose Identity m, Functor (->) (->) m) => AuxMonad m
+
+return :: forall m a. AuxMonad m => a -> m a
+return x = (runNat (nu :: Nat Identity m)) (Identity x)
+
+(>>=) :: forall m a b. AuxMonad m => m a -> (a -> m b) -> m b
+(>>=) mx f = (runNat (mu :: Nat (Compose m m) m)) (Compose (fmap f mx))
+
+(>>) :: forall m a b. AuxMonad m => m a -> m b -> m b
+(>>) mx my = mx >>= \_ -> my
 
 
 -- #########################################
 -- definitions for Stream
 -- #########################################
 
-
--- Functor instance
-
-instance (Functor (->) (->) f, Prelude.Monad m) => Functor (->) (->) (Stream f m) where
-  fmap f = loop where
-    loop stream = case stream of
-      Return r -> Return (f r)
-      Effect m -> Effect (do {stream' <- m; Prelude.return (loop stream')})
-      Step   g -> Step (fmap loop g)
-  {-# INLINABLE fmap #-}
-
-
 -- copypasted definitions that were changed to
--- require Functor (->) (->) f instead of Prelude.Functor f
+-- require AuxMonad m instead of Prelude.Monad m
+-- and Functor (->) (->) f instead of Prelude.Functor f
 
-maps :: (Prelude.Monad m, Functor (->) (->) f) => (forall x. f x -> g x) -> Stream f m r -> Stream g m r
+maps :: (AuxMonad m, Functor (->) (->) f) => (forall x. f x -> g x) -> Stream f m r -> Stream g m r
 maps phi = loop where
   loop stream = case stream of
     Return r -> Return r
-    Effect m -> Effect (Prelude.fmap loop m)
+    Effect m -> Effect (fmap loop m)
     Step   f -> Step (phi (fmap loop f))
 {-# INLINABLE maps #-}
 
-concats :: forall f m r. (Prelude.Monad m, Functor (->) (->) f) => Stream (Stream f m) m r -> Stream f m r
+concats :: forall f m r. (AuxMonad m, Functor (->) (->) f) => Stream (Stream f m) m r -> Stream f m r
 concats = loop where
   loop :: Stream (Stream f m) m r -> Stream f m r
   loop stream = case stream of
     Return r -> Return r
-    Effect m -> (Effect . Prelude.fmap Return) m `bindStream` loop
+    Effect m -> (Effect . fmap Return) m `bindStream` loop
     Step fs  -> fs `bindStream` loop
 {-# INLINE concats #-}
 
-bindStream :: (Prelude.Monad m, Functor (->) (->) f) => Stream f m t -> (t -> Stream f m r) -> Stream f m r
+bindStream :: (AuxMonad m, Functor (->) (->) f) => Stream f m t -> (t -> Stream f m r) -> Stream f m r
 stream `bindStream` f =
   loop stream where
   loop stream0 = case stream0 of
     Step fstr -> Step (fmap loop fstr)
-    Effect m  -> Effect (Prelude.fmap loop m)
+    Effect m  -> Effect (fmap loop m)
     Return r  -> f r
 {-# INLINABLE bindStream #-}
 
-joinStream :: (Prelude.Monad m, Functor (->) (->) f) => Stream f m (Stream f m r) -> Stream f m r
+joinStream :: (AuxMonad m, Functor (->) (->) f) => Stream f m (Stream f m r) -> Stream f m r
 joinStream stream = bindStream stream id
 
-yields :: (Prelude.Monad m, Functor (->) (->) f) => f r -> Stream f m r
+yields :: (AuxMonad m, Functor (->) (->) f) => f r -> Stream f m r
 yields fr = Step (fmap Return fr)
 {-# INLINE yields #-}
+
+fmapStream :: forall f m a b. (AuxMonad m, Functor (->) (->) f) => (a -> b) -> Stream f m a -> Stream f m b
+fmapStream f = loop where
+  loop stream = case stream of
+    Return r -> Return (f r)
+    Effect m -> Effect (StreamListLikeMonad.do {stream' <- m; return (loop stream')})
+    Step   g -> Step (fmap loop g)
+{-# INLINABLE fmapStream #-}
+
+hoistStream :: (AuxMonad m, Functor (->) (->) f) => (forall x. m x -> n x) -> Stream f m a -> Stream f n a
+hoistStream trans = loop where
+  loop stream = case stream of
+    Return r -> Return r
+    Effect m -> Effect (trans (fmap loop m))
+    Step f   -> Step (fmap loop f)
+{-# INLINABLE hoistStream #-}
