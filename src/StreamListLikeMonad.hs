@@ -112,6 +112,50 @@ second
   => (b `src2_morphism` c) -> p a b `tgt_morphism` p a c
 second = fmap
 
+type ContravariantFunctor :: forall {i} {j}. Morphism i -> Morphism j -> (i -> j) -> Constraint
+class Functor (Flip src_morphism) tgt_morphism f => ContravariantFunctor src_morphism tgt_morphism f where
+  contramap :: (ObjectConstraint src_morphism a, ObjectConstraint src_morphism b) => (b `src_morphism` a) -> (f a `tgt_morphism` f b)
+  contramap f = fmap @(Flip src_morphism) @tgt_morphism @f (Flip f)
+
+type Profunctor :: Morphism i -> Morphism j -> Morphism k -> (i -> j -> k) -> Constraint
+class (Bifunctor (Flip src1_morphism) src2_morphism tgt_morphism p) => Profunctor src1_morphism src2_morphism tgt_morphism p | p tgt_morphism -> src1_morphism src2_morphism where
+
+  dimap
+    :: ( ObjectConstraint src1_morphism a
+       , ObjectConstraint src1_morphism b
+       , ObjectConstraint src2_morphism c
+       , ObjectConstraint src2_morphism d
+       )
+    => (b `src1_morphism` a) -> (c `src2_morphism` d) -> p a c `tgt_morphism` p b d
+  dimap f g = (runNat . fmap @(Flip src1_morphism) @(NatTrans src2_morphism tgt_morphism)) (Flip f) . fmap g
+
+  lmap
+    :: ( ObjectConstraint src1_morphism a
+       , ObjectConstraint src1_morphism b
+       , ObjectConstraint src2_morphism c
+       )
+    => (b `src1_morphism` a) -> p a c `tgt_morphism` p b c
+  lmap f = dimap f id
+
+rmap
+  :: ( Profunctor src1_morphism src2_morphism tgt_morphism p
+     , ObjectConstraint src1_morphism a
+     , ObjectConstraint src2_morphism b
+     , ObjectConstraint src2_morphism c
+     )
+  => (b `src2_morphism` c) -> p a b `tgt_morphism` p a c
+rmap = fmap
+
+type BicontravariantFunctor :: Morphism i -> Morphism j -> Morphism k -> (i -> j -> k) -> Constraint
+class Bifunctor (Flip src1_morphism) (Flip src2_morphism) tgt_morphism p => BicontravariantFunctor src1_morphism src2_morphism tgt_morphism p where
+  bicontramap
+    :: ( ObjectConstraint src1_morphism a
+       , ObjectConstraint src1_morphism b
+       , ObjectConstraint src2_morphism c
+       , ObjectConstraint src2_morphism d
+       )
+    => (b `src1_morphism` a) -> (d `src2_morphism` c) -> p a c `tgt_morphism` p b d
+  bicontramap f g = (runNat . fmap @(Flip src1_morphism) @(NatTrans (Flip src2_morphism) tgt_morphism)) (Flip f) . fmap (Flip g)
 
 type TensorProduct k = k -> k -> k
 type TensorUnit k = k
@@ -224,6 +268,9 @@ instance Category (->) where
 type Vacuous :: Morphism i -> i -> Constraint
 class Vacuous c a
 instance Vacuous c a
+
+instance Functor (->) (->) ((->) a) where
+  fmap = (.)
 
 
 -- #########################################
@@ -344,6 +391,22 @@ bimapFlippedProduct = bimap @(Type -> Type) @(Type -> Type) @(Type -> Type) @Nat
 
 
 lassocFlipped2 = lassoc @(Flip (->)) @(Flip (,)) @()
+
+
+-- #########################################
+-- Profunctor instance for the normal function type (->)
+-- #########################################
+
+instance Functor (Flip (->)) Nat (->) where
+  fmap f = Nat (. runFlip f)
+
+instance Bifunctor (Flip (->)) (->) (->) (->) where
+  bimap f g h = g . h . runFlip f
+  first f = (. runFlip f)
+
+instance Profunctor (->) (->) (->) (->) where
+  dimap f g h = g . h . f
+  lmap f g = g . f
 
 
 -- #########################################
