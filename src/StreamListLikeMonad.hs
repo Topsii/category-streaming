@@ -106,10 +106,10 @@ class
 second
   :: ( Bifunctor src1_morphism src2_morphism tgt_morphism p
      , ObjectConstraint src1_morphism a
+     , ObjectConstraint src2_morphism b
      , ObjectConstraint src2_morphism c
-     , ObjectConstraint src2_morphism d
      )
-  => (c `src2_morphism` d) -> p a c `tgt_morphism` p a d
+  => (b `src2_morphism` c) -> p a b `tgt_morphism` p a c
 second = fmap
 
 
