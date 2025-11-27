@@ -34,14 +34,18 @@ import Data.Proxy (Proxy(..))
 import Control.Monad.Trans.Compose (ComposeT(..))
 import Data.Functor.Compose (Compose(..))
 import Data.Functor.Identity ( Identity(..) )
-import Data.Maybe (Maybe)
-import Control.Monad qualified (join)
+import Data.Maybe (Maybe (..))
+import Control.Monad qualified (join, (<=<))
 import qualified Control.Applicative
 import Data.Type.Equality ( type (~) )
 import Data.Either (Either (Left, Right))
 import Data.Void (Void, absurd)
 import Data.Functor.Product (Product (Pair))
 import Data.Functor.Sum (Sum (InL, InR))
+import Control.Arrow (Kleisli (..))
+import Data.These (These (..), these)
+import qualified Data.These.Combinators as These
+import qualified Data.Bitraversable as Bitraversable
 
 someFunc :: IO ()
 someFunc = putStrLn "someFunc"
@@ -271,6 +275,21 @@ instance Vacuous c a
 
 instance Functor (->) (->) ((->) a) where
   fmap = (.)
+
+
+-- #########################################
+-- instances for (Kleisli Maybe), the filtering category
+-- #########################################
+
+instance Category (Kleisli Maybe) where
+  type ObjectConstraint (Kleisli Maybe) = Vacuous (Kleisli Maybe)
+  id = Kleisli Just
+  (.) f g = Kleisli ( runKleisli f Control.Monad.<=< runKleisli g)
+
+instance Functor (Kleisli Maybe) (Kleisli Maybe) ((Kleisli Maybe) a) where
+  fmap f = Kleisli lift
+    where
+      lift g = Just (f . g)
 
 
 -- #########################################
@@ -585,6 +604,29 @@ instance MonoidalCategory (->) Either Void where
   lleftunit = Right
   rrightunit = Prelude.either id absurd
   lrightunit = Left
+
+
+-- #########################################
+-- monoidal category instances for These in the category (Kleisli Maybe)
+-- #########################################
+
+instance Functor (Kleisli Maybe) (Kleisli Maybe) (These a) where
+  fmap = Kleisli . Prelude.traverse . runKleisli
+
+instance Functor (Kleisli Maybe) (NatTrans (Kleisli Maybe) (Kleisli Maybe)) These where
+  fmap f = Nat (Kleisli (Bitraversable.bitraverse (runKleisli f) Just))
+
+instance Bifunctor (Kleisli Maybe) (Kleisli Maybe) (Kleisli Maybe) These where
+  bimap f g = Kleisli (Bitraversable.bitraverse (runKleisli f) (runKleisli g))
+  first f = Kleisli (Bitraversable.bitraverse (runKleisli f) Just)
+
+instance MonoidalCategory (Kleisli Maybe) These Void where
+  rassoc = Kleisli (Just . These.assocThese)
+  lassoc = Kleisli (Just . These.unassocThese)
+  rleftunit = Kleisli (these (Prelude.const Nothing) Just (Prelude.curry (Just . Prelude.snd)))
+  lleftunit = Kleisli (Just . That)
+  rrightunit = Kleisli (these Just (Prelude.const Nothing) (Prelude.curry (Just . Prelude.fst)))
+  lrightunit = Kleisli (Just . This)
 
 
 -- #########################################
