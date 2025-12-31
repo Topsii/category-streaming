@@ -161,7 +161,7 @@ type TensorProduct k = k -> k -> k
 type TensorUnit k = k
 
 type MonoidalCategory :: forall {k}. Morphism k -> TensorProduct k -> TensorUnit k -> Constraint
-class ( Bifunctor morphism morphism morphism m, Category morphism) => MonoidalCategory morphism m e | morphism m -> e where -- todo: remove this functional dependency by moving rassoc and lassoc to a superclass named Semicategory
+class (Bifunctor morphism morphism morphism m, Category morphism, ObjectConstraint morphism e) => MonoidalCategory morphism m e | morphism m -> e where -- todo: remove this functional dependency by moving rassoc and lassoc to a superclass named Semicategory
     rassoc :: (ObjectConstraint morphism a, ObjectConstraint morphism b, ObjectConstraint morphism c) => ((a `m` b) `m` c) `morphism` (a `m` (b `m` c))
     lassoc :: (ObjectConstraint morphism a, ObjectConstraint morphism b, ObjectConstraint morphism c) => (a `m` (b `m` c)) `morphism` ((a `m` b) `m` c)
     rleftunit :: ObjectConstraint morphism a => (e `m` a) `morphism` a
@@ -169,10 +169,176 @@ class ( Bifunctor morphism morphism morphism m, Category morphism) => MonoidalCa
     rrightunit :: ObjectConstraint morphism a => (a `m` e) `morphism` a
     lrightunit :: ObjectConstraint morphism a => a `morphism` (a `m` e)
 
+type SymmetricMonoidalCategory :: forall {k}. Morphism k -> TensorProduct k -> TensorUnit k -> Constraint
+class (MonoidalCategory morphism m e) => SymmetricMonoidalCategory morphism m e where
+    swap :: (a `m` b) `morphism` (b `m` a)
+
+type CartesianCategory :: forall {k}. Morphism k -> TensorProduct k -> TensorUnit k -> Constraint
+class
+    ( SymmetricMonoidalCategory morphism m e
+    , forall a. ObjectConstraint morphism a => ComonoidInMonoidalCategory morphism m e a -- the constraint in this line defines fst, snd, diag and (&&&)
+    )
+    => CartesianCategory morphism m e where
+
+    fst
+      :: ( ObjectConstraint morphism a
+         , ObjectConstraint morphism b
+         )
+      => (a `m` b) `morphism` a
+    fst = rrightunit . second' zzz
+      where
+        zzz :: (ComonoidInMonoidalCategory morphism m e b) => morphism b e
+        zzz = conu
+
+    snd
+      :: ( ObjectConstraint morphism a
+         , ObjectConstraint morphism b
+         )
+      => (a `m` b) `morphism` b
+    snd = rleftunit . first' zzz
+      where
+        zzz :: (ComonoidInMonoidalCategory morphism m e a) => morphism a e
+        zzz = conu
+
+    diag :: ObjectConstraint morphism a => a `morphism` (a `m` a)
+    -- diag = id &&& id
+    diag = comu
+
+    (&&&)
+      :: ( ObjectConstraint morphism a
+         , ObjectConstraint morphism b
+         , ObjectConstraint morphism c
+         )
+      => (a `morphism` b) -> (a `morphism` c) -> (a `morphism` (b `m` c))
+    (&&&) f g = bimap f g . diag
+    infixr 3 &&&
+
+    {-# MINIMAL fst, snd, (diag | (&&&)) #-}
+
+(***)
+  :: ( CartesianCategory morphism m e
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     , ObjectConstraint morphism c
+     , ObjectConstraint morphism d
+     )
+  => (a `morphism` b) -> (c `morphism` d) -> ((a `m` c) `morphism` (b `m` d))
+(***) = bimap
+infixr 3 ***
+
+first'
+  :: ( CartesianCategory morphism m e
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     , ObjectConstraint morphism c
+     )
+    => (a `morphism` b) -> ((a `m` c) `morphism` (b `m` c))
+first' = first
+
+second'
+  :: ( CartesianCategory morphism m e
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     , ObjectConstraint morphism c
+     )
+  => (b `morphism` c) -> ((a `m` b) `morphism` (a `m` c))
+second' = second
+
+
+type CocartesianCategory :: forall {k}. Morphism k -> TensorProduct k -> TensorUnit k -> Constraint
+class
+    ( SymmetricMonoidalCategory morphism m e
+    , forall a. ObjectConstraint morphism a => MonoidInMonoidalCategory morphism m e a -- the constraint in this line defines left, right, codiag and (|||)
+    )
+    => CocartesianCategory morphism m e where
+
+    left
+      :: ( ObjectConstraint morphism a
+         , ObjectConstraint morphism b
+         )
+      => a `morphism` (a `m` b)
+    left = right' zzz . lrightunit
+      where
+        zzz :: (MonoidInMonoidalCategory morphism m e b) => morphism e b
+        zzz = nu
+
+    right
+      :: ( ObjectConstraint morphism a
+         , ObjectConstraint morphism b
+         )
+      => b `morphism` (a `m` b)
+    right = left' zzz . lleftunit
+      where
+        zzz :: (MonoidInMonoidalCategory morphism m e a) => morphism e a
+        zzz = nu
+
+    codiag :: ObjectConstraint morphism a => (a `m` a) `morphism` a
+    -- codiag = id ||| id
+    codiag = mu
+
+    (|||)
+      :: ( ObjectConstraint morphism a
+         , ObjectConstraint morphism b
+         , ObjectConstraint morphism c
+         )
+      => (a `morphism` c) -> (b `morphism` c) -> ((a `m` b) `morphism` c)
+    (|||) f g = codiag . bimap f g
+    infixr 2 |||
+
+    {-# MINIMAL left, right, (codiag | (|||)) #-}
+
+(+++)
+  :: ( CocartesianCategory morphism m e
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     , ObjectConstraint morphism c
+     , ObjectConstraint morphism d
+     )
+  => (a `morphism` b) -> (c `morphism` d) -> ((a `m` c) `morphism` (b `m` d))
+(+++) = bimap
+infixr 2 +++
+
+left'
+  :: ( CocartesianCategory morphism m e
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     , ObjectConstraint morphism c
+     )
+    => (a `morphism` b) -> ((a `m` c) `morphism` (b `m` c))
+left' = first
+
+right'
+  :: ( CocartesianCategory morphism m e
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     , ObjectConstraint morphism c
+     )
+  => (b `morphism` c) -> ((a `m` b) `morphism` (a `m` c))
+right' = second
+
+either
+  :: ( CocartesianCategory morphism m e
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     , ObjectConstraint morphism c
+     )
+  => (a `morphism` c) -> (b `morphism` c) -> ((a `m` b) `morphism` c)
+either = (|||)
+
+-- instance (ObjectConstraint morphism a, CocartesianCategory morphism m e) => MonoidInMonoidalCategory morphism m e a
+
+
+
+
 type MonoidInMonoidalCategory :: forall {k}. Morphism k -> (k -> k -> k) -> k -> k -> Constraint
 class (MonoidalCategory morphism m e) => MonoidInMonoidalCategory morphism m e a | a -> m morphism where
   mu :: (a `m` a) `morphism` a
   nu :: e `morphism` a
+
+type ComonoidInMonoidalCategory :: forall {k}. Morphism k -> (k -> k -> k) -> k -> k -> Constraint
+class (MonoidalCategory morphism m e) => ComonoidInMonoidalCategory morphism m e a | a -> m morphism where
+  comu :: a `morphism` (a `m` a)
+  conu :: a `morphism` e
 
 type VertComposition a b c = (b -> c) -> (a -> b) -> (a -> c)
 type VertIdentity a = a -> a
