@@ -393,6 +393,25 @@ class CartesianCategory morphism prod t => CartesianClosedCategory morphism prod
   curry :: ((a `prod` b) `morphism` c) -> (a `morphism` (b `exp` c))
   uncurry :: (a `morphism` (b `exp` c)) -> ((a `prod` b) `morphism` c)
 
+-- is this even useful? should it have a different fixity?
+($)
+  :: ( CartesianClosedCategory morphism prod t exp
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     )
+  => ((a `exp` b) `prod` a) `morphism` b
+($) = apply
+infixr 0 $
+
+-- is this even useful?
+pair
+  :: ( CartesianClosedCategory morphism prod t exp
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     )
+  => a `morphism` (b `exp` (a `prod` b))
+pair = curry id
+
 class
     ( CartesianClosedCategory morphism prod t exp
     , BicartesianCategory morphism prod t coprod i
