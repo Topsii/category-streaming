@@ -43,6 +43,7 @@ import Data.Either (Either (Left, Right))
 import Data.Void (Void, absurd)
 import Data.Functor.Product (Product (Pair))
 import Data.Functor.Sum (Sum (InL, InR))
+import qualified Data.Semigroup
 
 someFunc :: IO ()
 someFunc = putStrLn "someFunc"
@@ -1068,6 +1069,15 @@ instance CategoricalCoproduct Nat Sum where
     InR ga -> ga)
 
 instance CocartesianCategory Nat Sum Void1 where
+
+
+-- #########################################
+-- instances for familiar Monoids
+-- #########################################
+
+instance Prelude.Monoid m => MonoidInMonoidalCategory (->) (,) () (Data.Semigroup.WrappedMonoid m) where
+  mu _ = Prelude.uncurry (Prelude.<>)
+  nu _ = Prelude.mempty
 
 
 -- #########################################
