@@ -220,6 +220,26 @@ class
 
   {-# MINIMAL (diag | (&&&)) #-}
 
+-- rename to swapDefault once class definitions of Cartesian and Cocartesian are moved to separate modules such that the name swapDefault does not clash anymore
+swapDefaultCartesian
+  :: ( CartesianCategory morphism prod t
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     )
+  => (a `prod` b) `morphism` (b `prod` a)
+swapDefaultCartesian = snd &&& fst
+
+-- rename to bimapDefault once class definitions of Cartesian and Cocartesian are moved to separate modules such that the name bimapDefault does not clash anymore
+bimapDefaultCartesian
+  :: ( CartesianCategory morphism prod t
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     , ObjectConstraint morphism c
+     , ObjectConstraint morphism d
+     )
+  => (a `morphism` b) -> (c `morphism` d) -> ((a `prod` c) `morphism` (b `prod` d))
+bimapDefaultCartesian f g = (f . fst) &&& (g . snd)
+
 (***)
   :: ( CartesianCategory morphism prod t
      , ObjectConstraint morphism a
@@ -285,6 +305,26 @@ class
   infixr 2 |||
 
   {-# MINIMAL (codiag | (|||)) #-}
+
+-- rename to swapDefault once class definitions of Cartesian and Cocartesian are moved to separate modules such that the name swapDefault does not clash anymore
+swapDefaultCocartesian
+  :: ( CocartesianCategory morphism prod t
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     )
+  => (a `prod` b) `morphism` (b `prod` a)
+swapDefaultCocartesian = right ||| left
+
+-- rename to bimapDefault once class definitions of Cartesian and Cocartesian are moved to separate modules such that the name bimapDefault does not clash anymore
+bimapDefaultCocartesian
+  :: ( CocartesianCategory morphism prod t
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     , ObjectConstraint morphism c
+     , ObjectConstraint morphism d
+     )
+  => (a `morphism` b) -> (c `morphism` d) -> ((a `prod` c) `morphism` (b `prod` d))
+bimapDefaultCocartesian f g = (left . f) ||| (right . g)
 
 (+++)
   :: ( CocartesianCategory morphism coprod i
