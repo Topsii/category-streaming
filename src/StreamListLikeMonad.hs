@@ -172,7 +172,7 @@ type MonoidalCategory :: forall {k}. Morphism k -> TensorProduct k -> TensorUnit
 class
     ( SemigroupalCategory morphism m
     , ObjectConstraint morphism e
-    ) => MonoidalCategory morphism m e | morphism m -> e where -- todo: remove this functional dependency by moving rassoc and lassoc to a superclass named SemigroupalCategory
+    ) => MonoidalCategory morphism m e where
   rleftunit :: ObjectConstraint morphism a => (e `m` a) `morphism` a
   lleftunit :: ObjectConstraint morphism a => a `morphism` (e `m` a)
   rrightunit :: ObjectConstraint morphism a => (a `m` e) `morphism` a
@@ -386,7 +386,8 @@ instance
     )
     => BicartesianCategory morphism prod t coprod i where
 
-class CartesianCategory morphism prod t => CartesianClosedCategory morphism prod t exp where
+--  todo: remove this functional dependency by moving apply, curry and uncurry to a superclass that does not mention the terminal object t, e.g. a superclass named SemigroupalClosedCategory or ProductClosedCategory or define an Adjunction class?
+class CartesianCategory morphism prod t => CartesianClosedCategory morphism prod t exp | prod exp -> t where
   apply :: ((a `exp` b) `prod` a) `morphism` b
   curry :: ((a `prod` b) `morphism` c) -> (a `morphism` (b `exp` c))
   uncurry :: (a `morphism` (b `exp` c)) -> ((a `prod` b) `morphism` c)
@@ -406,12 +407,12 @@ instance
 
 type MonoidInMonoidalCategory :: forall {k}. Morphism k -> (k -> k -> k) -> k -> k -> Constraint
 class (MonoidalCategory morphism m e) => MonoidInMonoidalCategory morphism m e a where
-  mu :: (a `m` a) `morphism` a
+  mu :: forall e'-> e ~ e' => (a `m` a) `morphism` a
   nu :: forall m'-> m ~ m' => e `morphism` a
 
 type ComonoidInMonoidalCategory :: forall {k}. Morphism k -> (k -> k -> k) -> k -> k -> Constraint
 class (MonoidalCategory morphism m e) => ComonoidInMonoidalCategory morphism m e a where
-  comu :: a `morphism` (a `m` a)
+  comu :: forall e'-> e ~ e' => a `morphism` (a `m` a)
   conu :: forall m'-> m ~ m' => a `morphism` e
 
 type VertComposition a b c = (b -> c) -> (a -> b) -> (a -> c)
@@ -448,7 +449,7 @@ https://stackoverflow.com/questions/25210743/bicategories-in-haskell
 TODO: look at https://sjoerdvisscher.github.io/proarrow/Proarrow-Category-Bicategory.html
 -}
 
-class (MonoidalCategory two_morphism p e) => VertComp e p one_morphism two_morphism | two_morphism -> p one_morphism where
+class (MonoidalCategory two_morphism p e) => VertComp e p one_morphism two_morphism | two_morphism -> p one_morphism, p -> e where
   lvertComp :: Proxy two_morphism -> (ObjectConstraint one_morphism ((p f g) a), ObjectConstraint one_morphism (f (g a))) =>  (p f g) a `one_morphism` f (g a)
   rvertComp :: Proxy two_morphism -> (ObjectConstraint one_morphism (f (g a)), ObjectConstraint one_morphism ((p f g) a)) => f (g a) `one_morphism` (p f g) a
   -- lvertComp :: Proxy two_morphism -> (p f g) a `one_morphism` f (g a)
@@ -479,7 +480,7 @@ class
   --     gg :: (p m m) a `one_morphism` m a
   --     gg = coerce (mu @e @p @two_morphism @m)
   default join :: forall a. (ObjectConstraint one_morphism (m (m a)), ObjectConstraint one_morphism (m a), ObjectConstraint one_morphism (p m m a), ObjectConstraint two_morphism m, ObjectConstraint two_morphism (p m m)) => (m (m a) `one_morphism` m a)
-  join = renriched (Proxy @two_morphism) mu . rvertComp (Proxy @two_morphism)
+  join = renriched (Proxy @two_morphism) (mu e) . rvertComp (Proxy @two_morphism)
 
   returN :: forall a. (ObjectConstraint one_morphism a, ObjectConstraint one_morphism (m a)) => (a `one_morphism` m a)
   -- returN = coerce gg
@@ -859,7 +860,7 @@ instance MonoidalCategory (->) (,) () where
   lrightunit a = (a, ())
 
 instance ComonoidInMonoidalCategory (->) (,) () a where
-  comu x = (x, x)
+  comu _ x = (x, x)
   conu _ _ = ()
 instance TerminalObject (->) () where
   terminate _ = ()
@@ -912,7 +913,7 @@ instance MonoidalCategory (->) Either Void where
   lrightunit = Left
 
 instance MonoidInMonoidalCategory (->) Either Void a where
-  mu = \case
+  mu _ = \case
     Left x -> x
     Right y -> y
   nu _ = absurd
@@ -966,7 +967,7 @@ instance MonoidalCategory Nat Product Proxy where
   lrightunit = Nat (`Pair` Proxy)
 
 instance (Functor (->) (->) f) => ComonoidInMonoidalCategory Nat Product Proxy f where
-  comu = Nat (\fa -> Pair fa fa)
+  comu _ = Nat (\fa -> Pair fa fa)
   conu _ = Nat (\_ -> Proxy)
 
 instance TerminalObject Nat Proxy where
@@ -1046,7 +1047,7 @@ instance MonoidalCategory Nat Sum Void1 where
   lrightunit = Nat InL
 
 instance (Functor (->) (->) f) => MonoidInMonoidalCategory Nat Sum Void1 f where
-  mu = Nat (\case
+  mu _ = Nat (\case
     InL fa -> fa
     InR ga -> ga)
   nu _ = Nat absurd1
@@ -1076,7 +1077,7 @@ instance CocartesianCategory Nat Sum Void1 where
 instance Prelude.Monad m => Functor (->) (->) (Control.Applicative.WrappedMonad m) where
   fmap = Prelude.fmap . coerce
 instance Prelude.Monad m => MonoidInMonoidalCategory Nat Compose Identity (Control.Applicative.WrappedMonad m) where
-  mu = Nat (Control.Monad.join . coerce)
+  mu _ = Nat (Control.Monad.join . coerce)
   nu _ = Nat (Prelude.return . coerce)
 
 instance Prelude.Monad m => StrictMonad Identity Compose (->) Nat (Control.Applicative.WrappedMonad m)
@@ -1084,14 +1085,14 @@ instance Prelude.Monad m => StrictMonad Identity Compose (->) Nat (Control.Appli
 instance Functor (->) (->) IO where
   fmap = Prelude.fmap . coerce
 instance MonoidInMonoidalCategory Nat Compose Identity IO where
-  mu = Nat (Control.Monad.join . coerce)
+  mu _ = Nat (Control.Monad.join . coerce)
   nu _ = Nat (Prelude.return . coerce)
 instance StrictMonad Identity Compose (->) Nat IO
 
 instance Functor (->) (->) Maybe where
   fmap = Prelude.fmap . coerce
 instance MonoidInMonoidalCategory Nat Compose Identity Maybe where
-  mu = Nat (Control.Monad.join . coerce)
+  mu _ = Nat (Control.Monad.join . coerce)
   nu _ = Nat (Prelude.return . coerce)
 instance StrictMonad Identity Compose (->) Nat Maybe
 
@@ -1114,11 +1115,11 @@ instance (Prelude.Monad m) => RelativeMonad Nat Nat IdentityT (StreamFlip m) whe
   (=<<) (Nat f) = Nat (coerce (concats @_ @m . maps @m @_ @(Stream _ m) (coerce f)))
 
 instance (Functor (->) (->) f, Prelude.Monad m) => MonoidInMonoidalCategory Nat Compose Identity (StreamFlip m f) where
-  mu = Nat (MkStreamFlip . joinStream . fmap getStream . getStream . getCompose)
+  mu _ = Nat (MkStreamFlip . joinStream . fmap getStream . getStream . getCompose)
   nu _ = Nat (MkStreamFlip . Return . runIdentity)
 
 instance (Prelude.Monad m) => MonoidInMonoidalCategory NatNat ComposeT IdentityT (StreamFlip m) where
-  mu = Nat (Nat (coerce (concats . maps coerce)))
+  mu _ = Nat (Nat (coerce (concats . maps coerce)))
   nu _ = Nat (Nat (coerce yields))
 
 instance (Prelude.Monad m) => StrictMonad IdentityT ComposeT Nat NatNat (StreamFlip m) where
