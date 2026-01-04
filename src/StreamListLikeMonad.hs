@@ -190,7 +190,7 @@ type MonoidalCategory :: forall {k}. Morphism k -> TensorProduct k -> TensorUnit
 class
     ( SemigroupalCategory morphism m
     , ObjectConstraint morphism e
-    ) => MonoidalCategory morphism m e where
+    ) => MonoidalCategory morphism m e | m -> e where
   rleftunit :: ObjectConstraint morphism a => (e `m` a) `morphism` a
   lleftunit :: ObjectConstraint morphism a => a `morphism` (e `m` a)
   rrightunit :: ObjectConstraint morphism a => (a `m` e) `morphism` a
@@ -246,7 +246,7 @@ class
     , CategoricalProduct morphism prod
     , forall a. ObjectConstraint morphism a => ComonoidInMonoidalCategory morphism prod t a
     )
-    => CartesianCategory morphism prod t where
+    => CartesianCategory morphism prod t | t -> prod where
 
 -- rename to swapDefault once class definitions of CategoricalProduct and CategoricalCoproduct are moved to separate modules such that the name swapDefault does not clash anymore
 swapDefaultProduct
@@ -352,7 +352,7 @@ class
     , InitialObject morphism i
     , forall a. ObjectConstraint morphism a => MonoidInMonoidalCategory morphism coprod i a
     )
-    => CocartesianCategory morphism coprod i where
+    => CocartesianCategory morphism coprod i | i -> coprod where
 
 (+++)
   :: ( CategoricalCoproduct morphism coprod
@@ -396,19 +396,13 @@ class
     ( CartesianCategory morphism prod t
     , CocartesianCategory morphism coprod i
     )
-    => BicartesianCategory morphism prod t coprod i where
-
-instance
-    ( CartesianCategory morphism prod t
-    , CocartesianCategory morphism coprod i
-    )
-    => BicartesianCategory morphism prod t coprod i where
+    => BicartesianCategory morphism prod t coprod i | prod -> coprod, coprod -> prod where
 
 
 class
     ( CategoricalProduct morphism prod
     , forall a. ObjectConstraint morphism a => Adjunction morphism morphism (prod a) (exp a)
-    ) => ExponentialObject morphism prod exp where
+    ) => ExponentialObject morphism prod exp | prod -> exp, exp -> prod where
 
   apply
     :: forall a b.
@@ -966,6 +960,8 @@ instance ExponentialObject (->) (,) (->) where
   curry = Prelude.curry
   uncurry = Prelude.uncurry
 
+instance BicartesianCategory (->) (,) () Either Void where
+
 
 -- #########################################
 -- cocartesian category instances for Either in the category (->)
@@ -1078,6 +1074,8 @@ instance CartesianCategory Nat Product Proxy where
 -- --   apply = undefined
 -- --   curry = undefined
 -- --   uncurry = undefined
+
+instance BicartesianCategory Nat Product Proxy Sum Void1 where
 
 
 -- #########################################
