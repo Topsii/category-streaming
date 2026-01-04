@@ -159,6 +159,23 @@ class Bifunctor (Flip src1_morphism) (Flip src2_morphism) tgt_morphism p => Bico
     => (b `src1_morphism` a) -> (d `src2_morphism` c) -> p a c `tgt_morphism` p b d
   bicontramap f g = (runTrans . fmap @(Flip src1_morphism) @(Transformation (Flip src2_morphism) tgt_morphism)) (Flip f) . fmap (Flip g)
 
+class
+    ( Functor morphism1 morphism2 l
+    , Functor morphism2 morphism1 r
+    ) => Adjunction morphism1 morphism2 l r where
+
+  leftAdjunct
+    :: ( ObjectConstraint morphism1 a
+       , ObjectConstraint morphism2 b
+       )
+    => (l a `morphism2` b) -> (a `morphism1` r b)
+
+  rightAdjunct
+    :: ( ObjectConstraint morphism1 a
+       , ObjectConstraint morphism2 b
+       )
+    => (a `morphism1` r b) -> (l a `morphism2` b)
+
 type TensorProduct k = k -> k -> k
 type SemigroupalCategory :: forall {k}. Morphism k -> TensorProduct k -> Constraint
 class
@@ -387,30 +404,74 @@ instance
     )
     => BicartesianCategory morphism prod t coprod i where
 
---  todo: remove this functional dependency by moving apply, curry and uncurry to a superclass that does not mention the terminal object t, e.g. a superclass named SemigroupalClosedCategory or ProductClosedCategory or define an Adjunction class?
-class CartesianCategory morphism prod t => CartesianClosedCategory morphism prod t exp | prod exp -> t where
-  apply :: ((a `exp` b) `prod` a) `morphism` b
-  curry :: ((a `prod` b) `morphism` c) -> (a `morphism` (b `exp` c))
-  uncurry :: (a `morphism` (b `exp` c)) -> ((a `prod` b) `morphism` c)
 
--- is this even useful? should it have a different fixity?
-($)
-  :: ( CartesianClosedCategory morphism prod t exp
+class
+    ( CategoricalProduct morphism prod
+    , forall a. ObjectConstraint morphism a => Adjunction morphism morphism (prod a) (exp a)
+    ) => ExponentialObject morphism prod exp where
+
+  apply
+    :: forall a b.
+      ( ObjectConstraint morphism a
+      , ObjectConstraint morphism b
+      )
+    => ((a `exp` b) `prod` a) `morphism` b
+  apply = uncurry id
+
+  curry
+    :: ( ObjectConstraint morphism a
+       , ObjectConstraint morphism b
+       , ObjectConstraint morphism c
+      )
+    => ((a `prod` b) `morphism` c) -> (a `morphism` (b `exp` c))
+  curry = leftAdjunct . (. swap)
+
+  uncurry
+    :: ( ObjectConstraint morphism a
+       , ObjectConstraint morphism b
+       , ObjectConstraint morphism c
+       )
+    => (a `morphism` (b `exp` c)) -> ((a `prod` b) `morphism` c)
+  uncurry = (. swap) . rightAdjunct
+
+  {-# MINIMAL curry, uncurry #-}
+
+rightAdjunctDefault
+  :: ( ExponentialObject morphism prod exp
      , ObjectConstraint morphism a
      , ObjectConstraint morphism b
+     , ObjectConstraint morphism c
      )
-  => ((a `exp` b) `prod` a) `morphism` b
-($) = apply
-infixr 0 $
+  => (a `morphism` exp c b) -> (prod c a `morphism` b)
+rightAdjunctDefault = (. swap) . uncurry
+
+leftAdjunctDefault
+  :: ( ExponentialObject morphism prod exp
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     , ObjectConstraint morphism c
+     )
+  => (prod c a `morphism` b) -> (a `morphism` exp c b)
+leftAdjunctDefault = curry . (. swap)
 
 -- is this even useful?
 pair
-  :: ( CartesianClosedCategory morphism prod t exp
+  :: ( ExponentialObject morphism prod exp
      , ObjectConstraint morphism a
      , ObjectConstraint morphism b
      )
   => a `morphism` (b `exp` (a `prod` b))
 pair = curry id
+
+class
+    ( CartesianCategory morphism prod t
+    , ExponentialObject morphism prod exp
+    ) => CartesianClosedCategory morphism prod t exp where
+
+instance
+    ( CartesianCategory morphism prod t
+    , ExponentialObject morphism prod exp
+    ) => CartesianClosedCategory morphism prod t exp where
 
 class
     ( CartesianClosedCategory morphism prod t exp
@@ -896,7 +957,11 @@ instance CategoricalProduct (->) (,) where
 
 instance CartesianCategory (->) (,) () where
 
-instance CartesianClosedCategory (->) (,) () (->) where
+instance Adjunction (->) (->) ((,) a) ((->) a) where
+  leftAdjunct = leftAdjunctDefault
+  rightAdjunct = rightAdjunctDefault
+
+instance ExponentialObject (->) (,) (->) where
   apply = Prelude.uncurry (Prelude.$)
   curry = Prelude.curry
   uncurry = Prelude.uncurry
@@ -1005,10 +1070,14 @@ instance CartesianCategory Nat Product Proxy where
 
 -- type NatExp f g a = f a -> g a
 
--- instance CartesianClosedCategory Nat Product Proxy NatExp where
---   apply = undefined
---   curry = undefined
---   uncurry = undefined
+-- instance (Functor (->) (->) f) => Adjunction Nat Nat (Product f) (NatExp f) where
+--   leftAdjunct = leftAdjunctDefault
+--   rightAdjunct = rightAdjunctDefault
+
+-- instance ExponentialObject Nat Product NatExp where
+-- --   apply = undefined
+-- --   curry = undefined
+-- --   uncurry = undefined
 
 
 -- #########################################
