@@ -786,6 +786,18 @@ data NatTrans src_morphism tgt_morphism f g where
     -> NatTrans src_morphism tgt_morphism f g
   -- Nat :: { runNat :: forall a. ObjectConstraint morphism a => morphism (f a) (g a) } -> NatTrans morphism f g
 
+type Exponential k = k -> k -> k
+
+type Natt :: Exponential (Type -> Type)
+type Natt = NatTranss (->) (->)
+
+type NatTranss :: forall {i} {k}. Morphism i -> Morphism k -> (i -> k) -> (i -> k) -> i -> Type
+data NatTranss src_morphism tgt_morphism f g a where
+  Natt
+    :: Functor src_morphism tgt_morphism f
+    => { runNatt :: ObjectConstraint src_morphism a => tgt_morphism (f a) (g a) }
+    -> NatTranss src_morphism tgt_morphism f g a
+
 instance (Category src_morphism, Category tgt_morphism) => Category (NatTrans (src_morphism :: Morphism i) (tgt_morphism :: Morphism k) :: Morphism (i -> k)) where
   type ObjectConstraint (NatTrans src_morphism tgt_morphism) = Functor src_morphism tgt_morphism
   id = Nat id
@@ -1064,16 +1076,15 @@ instance CategoricalProduct Nat Product where
 
 instance CartesianCategory Nat Product Proxy where
 
--- type NatExp f g a = f a -> g a
 
 -- instance (Functor (->) (->) f) => Adjunction Nat Nat (Product f) (NatExp f) where
 --   leftAdjunct = leftAdjunctDefault
 --   rightAdjunct = rightAdjunctDefault
 
--- instance ExponentialObject Nat Product NatExp where
--- --   apply = undefined
--- --   curry = undefined
--- --   uncurry = undefined
+-- instance ExponentialObject Nat Product Natt where
+--   curry (Nat f) = Nat (\x -> Natt (\y -> f (Pair x y)))
+--   uncurry (Nat f) = Nat (\(Pair x y) -> runNatt (f x) y)
+
 
 instance BicartesianCategory Nat Product Proxy Sum Void1 where
 
