@@ -80,7 +80,7 @@ class
     ( Category src1_morphism
     , Category src2_morphism
     , Category tgt_morphism
-    , Functor src1_morphism (NatTrans src2_morphism tgt_morphism) p -- fmap = first
+    , Functor src1_morphism (Transformation src2_morphism tgt_morphism) p -- fmap = first
     , forall z. ObjectConstraint src1_morphism z => Functor src2_morphism tgt_morphism (p z) -- fmap = second
     -- , forall a b. (ObjectConstraint src_morphism a, ObjectConstraint src_morphism b) => ObjectConstraint tgt_morphism (p a b)
     -- the line above does not work, instead we use the workaround from https://gitlab.haskell.org/ghc/ghc/-/issues/14860#note_495352 in the line below:
@@ -95,7 +95,7 @@ class
        , ObjectConstraint src2_morphism d
        )
     => (a `src1_morphism` b) -> (c `src2_morphism` d) -> p a c `tgt_morphism` p b d
-  bimap f g = (runNat . fmap @src1_morphism @(NatTrans src2_morphism tgt_morphism)) f . fmap g
+  bimap f g = (runTrans . fmap @src1_morphism @(Transformation src2_morphism tgt_morphism)) f . fmap g
 
   first
     :: ( ObjectConstraint src1_morphism a
@@ -103,7 +103,7 @@ class
        , ObjectConstraint src2_morphism c
        )
     => (a `src1_morphism` b) -> p a c `tgt_morphism` p b c
-  first = runNat . fmap @src1_morphism @(NatTrans src2_morphism tgt_morphism)
+  first = runTrans . fmap @src1_morphism @(Transformation src2_morphism tgt_morphism)
 
 second
   :: ( Bifunctor src1_morphism src2_morphism tgt_morphism p
@@ -129,7 +129,7 @@ class (Bifunctor (Flip src1_morphism) src2_morphism tgt_morphism p) => Profuncto
        , ObjectConstraint src2_morphism d
        )
     => (b `src1_morphism` a) -> (c `src2_morphism` d) -> p a c `tgt_morphism` p b d
-  dimap f g = (runNat . fmap @(Flip src1_morphism) @(NatTrans src2_morphism tgt_morphism)) (Flip f) . fmap g
+  dimap f g = (runTrans . fmap @(Flip src1_morphism) @(Transformation src2_morphism tgt_morphism)) (Flip f) . fmap g
 
   lmap
     :: ( ObjectConstraint src1_morphism a
@@ -157,7 +157,7 @@ class Bifunctor (Flip src1_morphism) (Flip src2_morphism) tgt_morphism p => Bico
        , ObjectConstraint src2_morphism d
        )
     => (b `src1_morphism` a) -> (d `src2_morphism` c) -> p a c `tgt_morphism` p b d
-  bicontramap f g = (runNat . fmap @(Flip src1_morphism) @(NatTrans (Flip src2_morphism) tgt_morphism)) (Flip f) . fmap (Flip g)
+  bicontramap f g = (runTrans . fmap @(Flip src1_morphism) @(Transformation (Flip src2_morphism) tgt_morphism)) (Flip f) . fmap (Flip g)
 
 class
     ( Functor morphism1 morphism2 l
@@ -614,13 +614,21 @@ instance Category morphism => Category (Flip morphism) where
 -- #########################################
 -- MonoidalCategory with flipped tensor product
 
-instance Functor (->) Nat p => Functor (->) (->) (Flip p a) where
-  fmap f = Flip . runNat (fmap @(->) @Nat f) . runFlip
+-- instance Functor (->) Nat p => Functor (->) (->) (Flip p a) where
+--   fmap f = Flip . runNat (fmap @(->) @Nat f) . runFlip
+
+instance Functor (->) Trans p => Functor (->) (->) (Flip p a) where
+  fmap f = Flip . runTrans (fmap @(->) @Trans f) . runFlip
+
+-- instance
+--     ( Functor (->) Nat p
+--     ) => Functor (->) Nat (Flip p) where
+--   fmap f = Nat (Flip . fmap @(->) @(->) f . runFlip)
 
 instance
-    ( Functor (->) Nat p
-    ) => Functor (->) Nat (Flip p) where
-  fmap f = Nat (Flip . fmap f . runFlip)
+    ( forall a. Functor (->) (->) (p a)
+    ) => Functor (->) Trans (Flip p) where
+  fmap f = Trans (Flip . fmap f . runFlip)
 
 instance (Bifunctor (->) (->) (->) p) => Bifunctor (->) (->) (->) (Flip p) where
 
@@ -637,6 +645,11 @@ instance MonoidalCategory (->) m e => MonoidalCategory (->) (Flip m) e where
 -- #########################################
 -- MonoidalCategory instance with opposite category
 
+instance Category (Transformation (Flip (->)) (Flip (->))) where
+  type ObjectConstraint (Transformation (Flip (->)) (Flip (->))) = Vacuous (Transformation (Flip (->)) (Flip (->)))
+  id = Trans id
+  (.) (Trans f) (Trans g) = Trans (f . g)
+
 instance (Functor (->) (->) (p a)) => Functor (Flip (->)) (Flip (->)) (p a) where
   fmap = Flip . fmap . runFlip
 
@@ -646,6 +659,13 @@ instance
     => Functor (Flip (->)) (NatTrans (Flip (->)) (Flip (->))) p
     where
   fmap f = Nat (Flip (runNat (fmap @(->) @Nat (runFlip f))))
+
+instance
+    ( Functor (->) (Transformation (->) (->)) p
+    )
+    => Functor (Flip (->)) (Transformation (Flip (->)) (Flip (->))) p
+    where
+  fmap f = Trans (Flip (runTrans (fmap @(->) @Trans (runFlip f))))
 
 instance
     ( Bifunctor (->) (->) (->) p
@@ -679,41 +699,58 @@ newtype Flip1 p f g a = Flip1 { runFlip1 :: p g f a }
 instance (Functor (->) (->) (p a b)) => Functor (->) (->) (Flip1 p b a) where
   fmap f = Flip1 . fmap f . runFlip1
 
-instance -- first to second
-    ( Functor (->) (->) b
-    , Functor Nat NatNat p
-    )
-    => Functor Nat Nat (Flip1 p b) where
-  fmap f = Nat (Flip1 . runNat (runNat (fmap @Nat @NatNat f)) . runFlip1)
+-- instance -- first to second
+--     ( Functor (->) (->) b
+--     , Functor Nat NatNat p
+--     )
+--     => Functor Nat Nat (Flip1 p b) where
+--   fmap f = Nat (Flip1 . runNat (runNat (fmap @Nat @NatNat f)) . runFlip1)
 
-instance -- second to first
-    ( Functor Nat NatNat p
-    )
-    => Functor Nat NatNat (Flip1 p) where
-  fmap f = Nat (Nat (Flip1 . runNat (fmap @Nat @Nat f) . runFlip1))
+-- -- my bad attempt
+-- instance -- first to second
+--     ( Functor (->) (->) b
+--     , Functor Nat (Transformation Nat Nat) p
+--     -- , forall a. Functor (->) (->) (Flip1 p b a)
+--     )
+--     => Functor Nat Nat (Flip1 p b) where
+--   fmap f = Nat (Flip1 . runNat (runTrans (fmap @Nat @(Transformation Nat Nat) f)) . runFlip1)
 
-instance
-    ( Bifunctor Nat Nat Nat p
-    )
-    => Bifunctor Nat Nat Nat (Flip1 p) where
+-- instance -- second to first
+--     ( Functor Nat NatNat p
+--     )
+--     => Functor Nat NatNat (Flip1 p) where
+--   fmap f = Nat (Nat (Flip1 . runNat (fmap @Nat @Nat f) . runFlip1))
+
+-- -- my bad attempt
+-- instance -- second to first
+--     ( Functor Nat (Transformation Nat Nat) p
+--      forall a. Functor Nat Nat (p a)
+--     )
+--     =>  Functor Nat (Transformation Nat Nat) (Flip1 p) where
+--   fmap f = Trans (Nat (Flip1 . runNat (fmap @Nat @Nat f) . runFlip1))
+
+-- instance
+--     ( Bifunctor Nat Nat Nat p
+--     )
+--     => Bifunctor Nat Nat Nat (Flip1 p) where
 
 
-bimapFlippedProduct
-  ::
-    ( ObjectConstraint Nat a
-    , ObjectConstraint Nat b
-    , ObjectConstraint Nat c
-    , ObjectConstraint Nat d
-    )
-  => Nat a c
-  -> Nat b d
-  -> Nat
-      (Flip1 Product a b)
-      (Flip1 Product c d)
-bimapFlippedProduct = bimap @(Type -> Type) @(Type -> Type) @(Type -> Type) @Nat @Nat @Nat @(Flip1 Product)
+-- bimapFlippedProduct
+--   ::
+--     ( ObjectConstraint Nat a
+--     , ObjectConstraint Nat b
+--     , ObjectConstraint Nat c
+--     , ObjectConstraint Nat d
+--     )
+--   => Nat a c
+--   -> Nat b d
+--   -> Nat
+--       (Flip1 Product a b)
+--       (Flip1 Product c d)
+-- bimapFlippedProduct = bimap @(Type -> Type) @(Type -> Type) @(Type -> Type) @Nat @Nat @Nat @(Flip1 Product)
 
 
-lassocFlipped2 = lassoc @(Flip (->)) @(Flip (,)) @()
+-- lassocFlipped2 = lassoc @(Flip (->)) @(Flip (,)) @()
 
 
 -- #########################################
@@ -723,6 +760,9 @@ lassocFlipped2 = lassoc @(Flip (->)) @(Flip (,)) @()
 instance Functor (Flip (->)) Nat (->) where
   fmap f = Nat (. runFlip f)
 
+instance Functor (Flip (->)) Trans (->) where
+  fmap f = Trans (. runFlip f)
+
 instance Bifunctor (Flip (->)) (->) (->) (->) where
   bimap f g h = g . h . runFlip f
   first f = (. runFlip f)
@@ -730,6 +770,58 @@ instance Bifunctor (Flip (->)) (->) (->) (->) where
 instance Profunctor (->) (->) (->) (->) where
   dimap f g h = g . h . f
   lmap f g = g . f
+
+
+-- #########################################
+-- definition of Transformation (Trans) and its Category instance
+-- unlike a natural transformation a mere transformation lacks the functor constraint
+-- this is probably not the best name
+-- #########################################
+
+type Trans :: Morphism (Type -> Type)
+type Trans = Transformation (->) (->)
+
+type Transformation :: forall {i} {k}. Morphism i -> Morphism k -> Morphism (i -> k)
+data Transformation src_morphism tgt_morphism f g where
+  Trans
+    :: { runTrans :: forall a. ObjectConstraint src_morphism a => tgt_morphism (f a) (g a) }
+    -> Transformation src_morphism tgt_morphism f g
+
+type Transs :: (Type -> Type) -> (Type -> Type) -> (Type -> Type)
+type Transs = Transformationn (->) (->)
+
+type Transformationn :: forall {i} {k}. Morphism i -> Morphism k -> (i -> k) -> (i -> k) -> i -> Type
+data Transformationn src_morphism tgt_morphism f g a where
+  Transs
+    :: { runTranss :: ObjectConstraint src_morphism a => tgt_morphism (f a) (g a) }
+    -> Transformationn src_morphism tgt_morphism f g a
+
+-- instance (Category src_morphism, Category tgt_morphism) => Category (Transformation (src_morphism :: Morphism i) (tgt_morphism :: Morphism k) :: Morphism (i -> k)) where
+--   type ObjectConstraint (Transformation src_morphism tgt_morphism) = Vacuous (Transformation src_morphism tgt_morphism)
+--   id = Trans id
+--   (.) (Trans f) (Trans g) = Trans (f . g)
+
+instance Category Trans where
+  type ObjectConstraint Trans = Vacuous Trans
+  id = Trans id
+  (.) (Trans f) (Trans g) = Trans (f . g)
+
+instance Category (Transformation Trans Trans) where
+  type ObjectConstraint (Transformation Trans Trans) = Vacuous (Transformation Trans Trans)
+  id = Trans id
+  (.) (Trans f) (Trans g) = Trans (f . g)
+
+-- move this instance definition to a different section where its relevant?
+instance Category (Transformation Nat Nat) where
+  type ObjectConstraint (Transformation Nat Nat) = Functor Nat Nat
+  id = Trans id
+  (.) (Trans f) (Trans g) = Trans (f . g)
+
+-- move this instance definition to a different section where its relevant?
+instance Category (Transformation NatNat NatNat) where
+  type ObjectConstraint (Transformation NatNat NatNat) = Functor NatNat NatNat
+  id = Trans id
+  (.) (Trans f) (Trans g) = Trans (f . g)
 
 
 -- #########################################
@@ -803,6 +895,9 @@ instance Functor (->) (->) t => Functor Nat Nat (Compose t) where
 instance Functor Nat NatNat Compose where
   fmap (Nat f) = Nat (Nat (Compose . f . getCompose))
 
+instance Functor Nat (Transformation Nat Nat) Compose where
+  fmap (Nat f) = Trans (Nat (Compose . f . getCompose))
+
 instance Bifunctor Nat Nat Nat Compose where
   bimap (Nat f) (Nat g) = Nat (Compose . f . fmap g . getCompose)
   first (Nat f) = Nat (Compose . f . getCompose)
@@ -859,6 +954,9 @@ instance Functor Nat Nat z => Functor NatNat NatNat (ComposeT z) where
 instance Functor NatNat NatNatNat ComposeT where
   fmap (Nat f) = Nat (Nat (Nat (ComposeT . runNat f . getComposeT)))
 
+instance Functor NatNat (Transformation NatNat NatNat) ComposeT where
+  fmap (Nat f) = Trans (Nat (Nat (ComposeT . runNat f . getComposeT)))
+
 instance Bifunctor NatNat NatNat NatNat ComposeT where
   bimap (Nat f) (Nat g) = Nat (Nat (ComposeT . runNat f . fmap2 (runNat g) . getComposeT))
   first (Nat f) = Nat (Nat (ComposeT . runNat f . getComposeT))
@@ -884,6 +982,9 @@ instance Functor (->) (->) ((,) a) where
 
 instance Functor (->) Nat (,) where
   fmap f = Nat (Base.Bifunctor.first f)
+
+instance Functor (->) Trans (,) where
+  fmap f = Trans (Base.Bifunctor.first f)
 
 instance Bifunctor (->) (->) (->) (,) where
   bimap = Base.Bifunctor.bimap
@@ -937,6 +1038,9 @@ instance Functor (->) (->) (Either a) where
 
 instance Functor (->) Nat Either where
   fmap f = Nat (Base.Bifunctor.first f)
+
+instance Functor (->) Trans Either where
+  fmap f = Trans (Base.Bifunctor.first f)
 
 instance Bifunctor (->) (->) (->) Either where
   bimap = Base.Bifunctor.bimap
@@ -994,6 +1098,9 @@ instance (Functor (->) (->) a) => Functor Nat Nat (Product a) where
 
 instance Functor Nat NatNat Product where
   fmap (Nat f) = Nat (Nat (\(Pair x y) -> Pair (f x) y))
+
+instance Functor Nat (Transformation Nat Nat) Product where
+  fmap (Nat f) = Trans (Nat (\(Pair x y) -> Pair (f x) y))
 
 instance Bifunctor Nat Nat Nat Product where
   bimap (Nat f) (Nat g) = Nat (\(Pair x y) -> Pair (f x) (g y))
@@ -1057,6 +1164,11 @@ instance (Functor (->) (->) a) => Functor Nat Nat (Sum a) where
 
 instance Functor Nat NatNat Sum where
   fmap (Nat f) = Nat (Nat (\case
+    InL ax -> InL (f ax)
+    InR bx -> InR bx))
+
+instance Functor Nat (Transformation Nat Nat) Sum where
+  fmap (Nat f) = Trans (Nat (\case
     InL ax -> InL (f ax)
     InR bx -> InR bx))
 
