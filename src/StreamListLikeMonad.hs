@@ -448,6 +448,15 @@ leftAdjunctDefault
   => (prod c a `morphism` b) -> (a `morphism` exp c b)
 leftAdjunctDefault = curry . (. swap)
 
+fmapDefault
+  :: ( ExponentialObject morphism prod exp
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     , ObjectConstraint morphism c
+     )
+  => (b `morphism` c) -> (exp a b `morphism` exp a c)
+fmapDefault f = curry (f . apply)
+
 -- is this even useful?
 pair
   :: ( ExponentialObject morphism prod exp
@@ -786,18 +795,6 @@ data NatTrans src_morphism tgt_morphism f g where
     -> NatTrans src_morphism tgt_morphism f g
   -- Nat :: { runNat :: forall a. ObjectConstraint morphism a => morphism (f a) (g a) } -> NatTrans morphism f g
 
-type Exponential k = k -> k -> k
-
-type Natt :: Exponential (Type -> Type)
-type Natt = NatTranss (->) (->)
-
-type NatTranss :: forall {i} {k}. Morphism i -> Morphism k -> (i -> k) -> (i -> k) -> i -> Type
-data NatTranss src_morphism tgt_morphism f g a where
-  Natt
-    :: Functor src_morphism tgt_morphism f
-    => { runNatt :: ObjectConstraint src_morphism a => tgt_morphism (f a) (g a) }
-    -> NatTranss src_morphism tgt_morphism f g a
-
 instance (Category src_morphism, Category tgt_morphism) => Category (NatTrans (src_morphism :: Morphism i) (tgt_morphism :: Morphism k) :: Morphism (i -> k)) where
   type ObjectConstraint (NatTrans src_morphism tgt_morphism) = Functor src_morphism tgt_morphism
   id = Nat id
@@ -1030,11 +1027,23 @@ instance CocartesianCategory (->) Either Void where
 
 
 -- #########################################
--- cartesian category instances for Product in the category Nat
+-- cartesian category instances for Product
 -- #########################################
+
+-- #########################################
+-- instances for Product
 
 instance (Functor (->) (->) f, Functor (->) (->) g) => Functor (->) (->) (Product f g) where
   fmap f (Pair fa ga) = Pair (fmap f fa) (fmap f ga)
+
+-- #########################################
+-- instances for Proxy
+
+instance Functor (->) (->) Proxy where
+  fmap _f Proxy = Proxy
+
+-- #########################################
+-- cartesian category instances for Product in the category Nat
 
 instance (Functor (->) (->) a) => Functor Nat Nat (Product a) where
   fmap (Nat f) = Nat (\(Pair x y) -> Pair x (f y))
@@ -1045,9 +1054,6 @@ instance Functor Nat (Transformation Nat Nat) Product where
 instance Bifunctor Nat Nat Nat Product where
   bimap (Nat f) (Nat g) = Nat (\(Pair x y) -> Pair (f x) (g y))
   first (Nat f) = Nat (\(Pair x y) -> Pair (f x) y)
-
-instance Functor (->) (->) Proxy where
-  fmap _f Proxy = Proxy
 
 instance SemigroupalCategory Nat Product where
   rassoc = Nat (\(Pair (Pair a b) c) -> Pair a (Pair b c))
@@ -1076,27 +1082,75 @@ instance CategoricalProduct Nat Product where
 
 instance CartesianCategory Nat Product Proxy where
 
-
--- instance (Functor (->) (->) f) => Adjunction Nat Nat (Product f) (NatExp f) where
---   leftAdjunct = leftAdjunctDefault
---   rightAdjunct = rightAdjunctDefault
-
--- instance ExponentialObject Nat Product Natt where
---   curry (Nat f) = Nat (\x -> Natt (\y -> f (Pair x y)))
---   uncurry (Nat f) = Nat (\(Pair x y) -> runNatt (f x) y)
-
-
 instance BicartesianCategory Nat Product Proxy Sum Void1 where
 
+-- #########################################
+-- cartesian category instances for Product in the category Trans
+
+instance Functor Trans Trans (Product a) where
+  fmap (Trans f) = Trans (\(Pair x y) -> Pair x (f y))
+
+instance Functor Trans (Transformation Trans Trans)  Product where
+  fmap (Trans f) = Trans (Trans (\(Pair x y) -> Pair (f x) y))
+
+instance Bifunctor Trans Trans Trans Product where
+  bimap (Trans f) (Trans g) = Trans (\(Pair x y) -> Pair (f x) (g y))
+  first (Trans f) = Trans (\(Pair x y) -> Pair (f x) y)
+
+instance SemigroupalCategory Trans Product where
+  rassoc = Trans (\(Pair (Pair a b) c) -> Pair a (Pair b c))
+  lassoc = Trans (\(Pair a (Pair b c)) -> Pair (Pair a b) c)
+
+instance MonoidalCategory Trans Product Proxy where
+  rleftunit = Trans (\(Pair Proxy a) -> a)
+  lleftunit = Trans (Pair Proxy)
+  rrightunit = Trans (\(Pair a Proxy) -> a)
+  lrightunit = Trans (`Pair` Proxy)
+
+instance ComonoidInMonoidalCategory Trans Product Proxy f where
+  comu _ = Trans (\fa -> Pair fa fa)
+  conu _ = Trans (\_ -> Proxy)
+
+instance TerminalObject Trans Proxy where
+  terminate = Trans (\_ -> Proxy)
+
+instance SymmetricSemigroupalCategory Trans Product where
+  swap = Trans (\(Pair fa ga) -> Pair ga fa)
+
+instance CategoricalProduct Trans Product where
+  fst = Trans (\(Pair fa _) -> fa)
+  snd = Trans (\(Pair _ fb) -> fb)
+  diag = Trans (\fa -> Pair fa fa)
+
+instance CartesianCategory Trans Product Proxy where
+
+instance BicartesianCategory Trans Product Proxy Sum Void1 where
 
 -- #########################################
--- cocartesian category instances for Sum in the category Nat
+-- category instances for Sum
 -- #########################################
+
+-- #########################################
+-- instances for Sum
 
 instance (Functor (->) (->) f, Functor (->) (->) g) => Functor (->) (->) (Sum f g) where
   fmap f = \case
     InL fa -> InL (fmap f fa)
     InR ga -> InR (fmap f ga)
+
+-- #########################################
+-- instances for Void1
+
+data Void1 a
+
+absurd1 :: Void1 x -> b
+absurd1 v = case v of {}
+
+instance Functor (->) (->) Void1 where
+  fmap _f = absurd1
+
+-- #########################################
+-- cocartesian category instances for Sum in the category Nat
 
 instance (Functor (->) (->) a) => Functor Nat Nat (Sum a) where
   fmap (Nat f) = Nat (\case
@@ -1115,14 +1169,6 @@ instance Bifunctor Nat Nat Nat Sum where
   first (Nat f) = Nat (\case
     InL ax -> InL (f ax)
     InR bx -> InR bx)
-
-data Void1 a
-
-absurd1 :: Void1 x -> b
-absurd1 v = case v of {}
-
-instance Functor (->) (->) Void1 where
-  fmap _f = absurd1
 
 instance SemigroupalCategory Nat Sum where
   rassoc = Nat (\case
@@ -1166,6 +1212,70 @@ instance CategoricalCoproduct Nat Sum where
     InR ga -> ga)
 
 instance CocartesianCategory Nat Sum Void1 where
+
+-- #########################################
+-- cocartesian category instances for Sum in the category Trans
+
+instance Functor Trans Trans (Sum a) where
+  fmap (Trans f) = Trans (\case
+    InL ax -> InL ax
+    InR bx -> InR (f bx))
+
+instance Functor Trans (Transformation Trans Trans) Sum where
+  fmap (Trans f) = Trans (Trans (\case
+    InL ax -> InL (f ax)
+    InR bx -> InR bx))
+
+instance Bifunctor Trans Trans Trans Sum where
+  bimap (Trans f) (Trans g) = Trans (\case
+    InL ax -> InL (f ax)
+    InR bx -> InR (g bx))
+  first (Trans f) = Trans (\case
+    InL ax -> InL (f ax)
+    InR bx -> InR bx)
+
+instance SemigroupalCategory Trans Sum where
+  rassoc = Trans (\case
+    InL (InL a) -> InL a
+    InL (InR b) -> InR (InL b)
+    InR c       -> InR (InR c))
+  lassoc = Trans (\case
+    InL a       -> InL (InL a)
+    InR (InL b) -> InL (InR b)
+    InR (InR c) -> InR c)
+
+instance MonoidalCategory Trans Sum Void1 where
+  rleftunit = Trans (\case
+    InL v -> absurd1 v
+    InR a -> a)
+  lleftunit = Trans InR
+  rrightunit = Trans (\case
+    InL a -> a
+    InR v -> absurd1 v)
+  lrightunit = Trans InL
+
+instance MonoidInMonoidalCategory Trans Sum Void1 f where
+  mu _ = Trans (\case
+    InL fa -> fa
+    InR ga -> ga)
+  nu _ = Trans absurd1
+
+instance InitialObject Trans Void1 where
+  initiate = Trans absurd1
+
+instance SymmetricSemigroupalCategory Trans Sum where
+  swap = Trans (\case
+    InL fa -> InR fa
+    InR ga -> InL ga)
+
+instance CategoricalCoproduct Trans Sum where
+  left = Trans InL
+  right = Trans InR
+  codiag = Trans (\case
+    InL fa -> fa
+    InR ga -> ga)
+
+instance CocartesianCategory Trans Sum Void1 where
 
 
 -- #########################################
