@@ -1291,6 +1291,31 @@ instance CocartesianCategory Trans Sum Void1 where
 
 
 -- #########################################
+-- Exponential object in the category Trans
+-- #########################################
+
+type Transs :: (Type -> Type) -> (Type -> Type) -> (Type -> Type)
+type Transs = Transformationn (->) (->)
+
+type Transformationn :: forall {i} {k}. Morphism i -> Morphism k -> (i -> k) -> (i -> k) -> i -> Type
+data Transformationn src_morphism tgt_morphism f g a where
+  Transs
+    :: { runTranss :: ObjectConstraint src_morphism a => tgt_morphism (f a) (g a) }
+    -> Transformationn src_morphism tgt_morphism f g a
+
+instance Functor Trans Trans (Transs a) where
+  fmap (Trans f) = Trans  (\(Transs g) -> Transs (f . g))
+
+instance Adjunction Trans Trans (Product a) (Transs a) where
+  leftAdjunct = leftAdjunctDefault
+  rightAdjunct = rightAdjunctDefault
+
+instance ExponentialObject Trans Product Transs where
+  curry (Trans f) = Trans (\x -> Transs (\y -> f (Pair x y)))
+  uncurry (Trans f) = Trans (\(Pair x y) -> runTranss (f x) y)
+
+
+-- #########################################
 -- instances for familiar Monoids
 -- #########################################
 
