@@ -402,6 +402,7 @@ class
 class
     ( CategoricalProduct morphism prod
     , forall a. ObjectConstraint morphism a => Adjunction morphism morphism (prod a) (exp a)
+    , Profunctor morphism morphism morphism exp
     ) => ExponentialObject morphism prod exp | prod -> exp, exp -> prod where
 
   apply
@@ -456,6 +457,24 @@ fmapDefault
      )
   => (b `morphism` c) -> (exp a b `morphism` exp a c)
 fmapDefault f = curry (f . apply)
+
+dimapDefault :: forall morphism prod exp a b x y.
+     ( ExponentialObject morphism prod exp
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     , ObjectConstraint morphism x
+     , ObjectConstraint morphism y
+     )
+  => (x `morphism` a) -> (b `morphism` y) -> (exp a b `morphism` exp x y)
+dimapDefault f g = curry (g . apply . second f)
+
+firstFlipDefault
+  :: forall morphism prod exp a b.
+     ( ExponentialObject morphism prod exp
+     , ObjectConstraint (Flip morphism) a
+     , ObjectConstraint (Flip morphism) b
+     ) => Flip morphism a b -> Transformation morphism morphism (exp a) (exp b)
+firstFlipDefault (Flip f) = Trans (dimapDefault f id)
 
 -- is this even useful?
 pair
@@ -1309,6 +1328,14 @@ instance Functor Trans Trans (Transs a) where
 instance Adjunction Trans Trans (Product a) (Transs a) where
   leftAdjunct = leftAdjunctDefault
   rightAdjunct = rightAdjunctDefault
+
+instance Functor (Flip Trans) (Transformation Trans Trans) Transs where
+  fmap = firstFlipDefault
+
+instance Bifunctor (Flip Trans) Trans Trans Transs
+
+instance Profunctor Trans Trans Trans Transs where
+  dimap = dimapDefault
 
 instance ExponentialObject Trans Product Transs where
   curry (Trans f) = Trans (\x -> Transs (\y -> f (Pair x y)))
