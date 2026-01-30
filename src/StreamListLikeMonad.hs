@@ -429,7 +429,11 @@ type Trans = Transformation (->) (->)
 type Transformation :: forall {i} {k}. Morphism i -> Morphism k -> Morphism (i -> k)
 data Transformation src_morphism tgt_morphism f g where
   Trans
-    :: { runTrans :: forall a. ObjectConstraint src_morphism a => tgt_morphism (f a) (g a) }
+    :: {- ( Category src_morphism
+       , Category tgt_morphism
+       , forall a. (ObjectConstraint src_morphism a) => Obj tgt_morphism (f a)
+       )
+    => -} { runTrans :: forall a. ObjectConstraint src_morphism a => tgt_morphism (f a) (g a) }
     -> Transformation src_morphism tgt_morphism f g
 
 instance Category Trans where
