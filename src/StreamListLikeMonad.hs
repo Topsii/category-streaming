@@ -21,6 +21,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE RequiredTypeArguments #-}
 
 module StreamListLikeMonad where
 import Prelude (IO, putStrLn, undefined)
@@ -42,6 +43,7 @@ import Data.Either (Either (Left, Right))
 import Data.Void (Void, absurd)
 import Data.Functor.Product (Product (Pair))
 import Data.Functor.Sum (Sum (InL, InR))
+import qualified Data.Semigroup
 
 someFunc :: IO ()
 someFunc = putStrLn "someFunc"
@@ -78,7 +80,7 @@ class
     ( Category src1_morphism
     , Category src2_morphism
     , Category tgt_morphism
-    , Functor src1_morphism (NatTrans src2_morphism tgt_morphism) p -- fmap = first
+    , Functor src1_morphism (Transformation src2_morphism tgt_morphism) p -- fmap = first
     , forall z. ObjectConstraint src1_morphism z => Functor src2_morphism tgt_morphism (p z) -- fmap = second
     -- , forall a b. (ObjectConstraint src_morphism a, ObjectConstraint src_morphism b) => ObjectConstraint tgt_morphism (p a b)
     -- the line above does not work, instead we use the workaround from https://gitlab.haskell.org/ghc/ghc/-/issues/14860#note_495352 in the line below:
@@ -93,7 +95,7 @@ class
        , ObjectConstraint src2_morphism d
        )
     => (a `src1_morphism` b) -> (c `src2_morphism` d) -> p a c `tgt_morphism` p b d
-  bimap f g = (runNat . fmap @src1_morphism @(NatTrans src2_morphism tgt_morphism)) f . fmap g
+  bimap f g = (runTrans . fmap @src1_morphism @(Transformation src2_morphism tgt_morphism)) f . fmap g
 
   first
     :: ( ObjectConstraint src1_morphism a
@@ -101,7 +103,7 @@ class
        , ObjectConstraint src2_morphism c
        )
     => (a `src1_morphism` b) -> p a c `tgt_morphism` p b c
-  first = runNat . fmap @src1_morphism @(NatTrans src2_morphism tgt_morphism)
+  first = runTrans . fmap @src1_morphism @(Transformation src2_morphism tgt_morphism)
 
 second
   :: ( Bifunctor src1_morphism src2_morphism tgt_morphism p
@@ -127,7 +129,7 @@ class (Bifunctor (Flip src1_morphism) src2_morphism tgt_morphism p) => Profuncto
        , ObjectConstraint src2_morphism d
        )
     => (b `src1_morphism` a) -> (c `src2_morphism` d) -> p a c `tgt_morphism` p b d
-  dimap f g = (runNat . fmap @(Flip src1_morphism) @(NatTrans src2_morphism tgt_morphism)) (Flip f) . fmap g
+  dimap f g = (runTrans . fmap @(Flip src1_morphism) @(Transformation src2_morphism tgt_morphism)) (Flip f) . fmap g
 
   lmap
     :: ( ObjectConstraint src1_morphism a
@@ -155,24 +157,366 @@ class Bifunctor (Flip src1_morphism) (Flip src2_morphism) tgt_morphism p => Bico
        , ObjectConstraint src2_morphism d
        )
     => (b `src1_morphism` a) -> (d `src2_morphism` c) -> p a c `tgt_morphism` p b d
-  bicontramap f g = (runNat . fmap @(Flip src1_morphism) @(NatTrans (Flip src2_morphism) tgt_morphism)) (Flip f) . fmap (Flip g)
+  bicontramap f g = (runTrans . fmap @(Flip src1_morphism) @(Transformation (Flip src2_morphism) tgt_morphism)) (Flip f) . fmap (Flip g)
+
+class
+    ( Functor morphism1 morphism2 l
+    , Functor morphism2 morphism1 r
+    ) => Adjunction morphism1 morphism2 l r where
+
+  leftAdjunct
+    :: ( ObjectConstraint morphism1 a
+       , ObjectConstraint morphism2 b
+       )
+    => (l a `morphism2` b) -> (a `morphism1` r b)
+
+  rightAdjunct
+    :: ( ObjectConstraint morphism1 a
+       , ObjectConstraint morphism2 b
+       )
+    => (a `morphism1` r b) -> (l a `morphism2` b)
 
 type TensorProduct k = k -> k -> k
-type TensorUnit k = k
+type SemigroupalCategory :: forall {k}. Morphism k -> TensorProduct k -> Constraint
+class
+    ( Bifunctor morphism morphism morphism m
+    , Category morphism
+    ) => SemigroupalCategory morphism m where
+  rassoc :: (ObjectConstraint morphism a, ObjectConstraint morphism b, ObjectConstraint morphism c) => ((a `m` b) `m` c) `morphism` (a `m` (b `m` c))
+  lassoc :: (ObjectConstraint morphism a, ObjectConstraint morphism b, ObjectConstraint morphism c) => (a `m` (b `m` c)) `morphism` ((a `m` b) `m` c)
 
+type TensorUnit k = k
 type MonoidalCategory :: forall {k}. Morphism k -> TensorProduct k -> TensorUnit k -> Constraint
-class ( Bifunctor morphism morphism morphism m, Category morphism) => MonoidalCategory morphism m e | morphism m -> e where -- todo: remove this functional dependency by moving rassoc and lassoc to a superclass named Semicategory
-    rassoc :: (ObjectConstraint morphism a, ObjectConstraint morphism b, ObjectConstraint morphism c) => ((a `m` b) `m` c) `morphism` (a `m` (b `m` c))
-    lassoc :: (ObjectConstraint morphism a, ObjectConstraint morphism b, ObjectConstraint morphism c) => (a `m` (b `m` c)) `morphism` ((a `m` b) `m` c)
-    rleftunit :: ObjectConstraint morphism a => (e `m` a) `morphism` a
-    lleftunit :: ObjectConstraint morphism a => a `morphism` (e `m` a)
-    rrightunit :: ObjectConstraint morphism a => (a `m` e) `morphism` a
-    lrightunit :: ObjectConstraint morphism a => a `morphism` (a `m` e)
+class
+    ( SemigroupalCategory morphism m
+    , ObjectConstraint morphism e
+    ) => MonoidalCategory morphism m e | m -> e where
+  rleftunit :: ObjectConstraint morphism a => (e `m` a) `morphism` a
+  lleftunit :: ObjectConstraint morphism a => a `morphism` (e `m` a)
+  rrightunit :: ObjectConstraint morphism a => (a `m` e) `morphism` a
+  lrightunit :: ObjectConstraint morphism a => a `morphism` (a `m` e)
+
+type SymmetricSemigroupalCategory :: forall {k}. Morphism k -> TensorProduct k -> Constraint
+class (SemigroupalCategory morphism m) => SymmetricSemigroupalCategory morphism m where
+    swap :: (ObjectConstraint morphism a, ObjectConstraint morphism b) => (a `m` b) `morphism` (b `m` a)
+
+type SymmetricMonoidalCategory :: forall {k}. Morphism k -> TensorProduct k -> TensorUnit k -> Constraint
+class (SymmetricSemigroupalCategory morphism m, MonoidalCategory morphism m e) => SymmetricMonoidalCategory morphism m e where
+instance (SymmetricSemigroupalCategory morphism m, MonoidalCategory morphism m e) => SymmetricMonoidalCategory morphism m e where
+
+class (Category morphism, ObjectConstraint morphism t) => TerminalObject morphism t where
+  terminate :: ObjectConstraint morphism a => a `morphism` t
+
+class (Category morphism, ObjectConstraint morphism i) => InitialObject morphism i where
+  initiate :: ObjectConstraint morphism a => i `morphism` a
+
+type CategoricalProduct :: forall {k}. Morphism k -> TensorProduct k -> Constraint
+class SymmetricSemigroupalCategory morphism prod => CategoricalProduct morphism prod where
+
+  fst
+    :: ( ObjectConstraint morphism a
+       , ObjectConstraint morphism b
+       )
+    => (a `prod` b) `morphism` a
+
+  snd
+    :: ( ObjectConstraint morphism a
+       , ObjectConstraint morphism b
+       )
+    => (a `prod` b) `morphism` b
+
+  diag :: ObjectConstraint morphism a => a `morphism` (a `prod` a)
+  diag = id &&& id
+
+  (&&&)
+    :: ( ObjectConstraint morphism a
+       , ObjectConstraint morphism b
+       , ObjectConstraint morphism c
+       )
+    => (a `morphism` b) -> (a `morphism` c) -> (a `morphism` (b `prod` c))
+  (&&&) f g = bimap f g . diag
+  infixr 3 &&&
+
+  {-# MINIMAL fst, snd, (diag | (&&&)) #-}
+
+type CartesianCategory :: forall {k}. Morphism k -> TensorProduct k -> TensorUnit k -> Constraint
+class
+    ( SymmetricMonoidalCategory morphism prod t
+    , TerminalObject morphism t
+    , CategoricalProduct morphism prod
+    , forall a. ObjectConstraint morphism a => ComonoidInMonoidalCategory morphism prod t a
+    )
+    => CartesianCategory morphism prod t | t -> prod where
+
+-- rename to swapDefault once class definitions of CategoricalProduct and CategoricalCoproduct are moved to separate modules such that the name swapDefault does not clash anymore
+swapDefaultProduct
+  :: ( CategoricalProduct morphism prod
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     )
+  => (a `prod` b) `morphism` (b `prod` a)
+swapDefaultProduct = snd &&& fst
+
+-- rename to bimapDefault once class definitions of CategoricalProduct and CategoricalCoproduct are moved to separate modules such that the name bimapDefault does not clash anymore
+bimapDefaultProduct
+  :: ( CategoricalProduct morphism prod
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     , ObjectConstraint morphism c
+     , ObjectConstraint morphism d
+     )
+  => (a `morphism` b) -> (c `morphism` d) -> ((a `prod` c) `morphism` (b `prod` d))
+bimapDefaultProduct f g = (f . fst) &&& (g . snd)
+
+(***)
+  :: ( CategoricalProduct morphism prod
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     , ObjectConstraint morphism c
+     , ObjectConstraint morphism d
+     )
+  => (a `morphism` b) -> (c `morphism` d) -> ((a `prod` c) `morphism` (b `prod` d))
+(***) = bimap
+infixr 3 ***
+
+first'
+  :: ( CategoricalProduct morphism prod
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     , ObjectConstraint morphism c
+     )
+    => (a `morphism` b) -> ((a `prod` c) `morphism` (b `prod` c))
+first' = first
+
+second'
+  :: ( CategoricalProduct morphism prod
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     , ObjectConstraint morphism c
+     )
+  => (b `morphism` c) -> ((a `prod` b) `morphism` (a `prod` c))
+second' = second
+
+type CategoricalCoproduct :: forall {k}. Morphism k -> TensorProduct k -> Constraint
+class SymmetricSemigroupalCategory morphism coprod => CategoricalCoproduct morphism coprod where
+
+  left
+    :: ( ObjectConstraint morphism a
+       , ObjectConstraint morphism b
+       )
+    => a `morphism` (a `coprod` b)
+
+  right
+    :: ( ObjectConstraint morphism a
+       , ObjectConstraint morphism b
+       )
+    => b `morphism` (a `coprod` b)
+
+  codiag :: ObjectConstraint morphism a => (a `coprod` a) `morphism` a
+  codiag = id ||| id
+
+  (|||)
+    :: ( ObjectConstraint morphism a
+       , ObjectConstraint morphism b
+       , ObjectConstraint morphism c
+       )
+    => (a `morphism` c) -> (b `morphism` c) -> ((a `coprod` b) `morphism` c)
+  (|||) f g = codiag . bimap f g
+  infixr 2 |||
+
+  {-# MINIMAL left, right, (codiag | (|||)) #-}
+
+-- rename to swapDefault once class definitions of CategoricalProduct and CategoricalCoproduct are moved to separate modules such that the name swapDefault does not clash anymore
+swapDefaultCoproduct
+  :: ( CategoricalCoproduct morphism prod
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     )
+  => (a `prod` b) `morphism` (b `prod` a)
+swapDefaultCoproduct = right ||| left
+
+-- rename to bimapDefault once class definitions of CategoricalProduct and CategoricalCoproduct are moved to separate modules such that the name bimapDefault does not clash anymore
+bimapDefaultCoproduct
+  :: ( CategoricalCoproduct morphism prod
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     , ObjectConstraint morphism c
+     , ObjectConstraint morphism d
+     )
+  => (a `morphism` b) -> (c `morphism` d) -> ((a `prod` c) `morphism` (b `prod` d))
+bimapDefaultCoproduct f g = (left . f) ||| (right . g)
+
+type CocartesianCategory :: forall {k}. Morphism k -> TensorProduct k -> TensorUnit k -> Constraint
+class
+    ( SymmetricMonoidalCategory morphism coprod i
+    , InitialObject morphism i
+    , forall a. ObjectConstraint morphism a => MonoidInMonoidalCategory morphism coprod i a
+    )
+    => CocartesianCategory morphism coprod i | i -> coprod where
+
+(+++)
+  :: ( CategoricalCoproduct morphism coprod
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     , ObjectConstraint morphism c
+     , ObjectConstraint morphism d
+     )
+  => (a `morphism` b) -> (c `morphism` d) -> ((a `coprod` c) `morphism` (b `coprod` d))
+(+++) = bimap
+infixr 2 +++
+
+left'
+  :: ( CategoricalCoproduct morphism coprod
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     , ObjectConstraint morphism c
+     )
+    => (a `morphism` b) -> ((a `coprod` c) `morphism` (b `coprod` c))
+left' = first
+
+right'
+  :: ( CategoricalCoproduct morphism coprod
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     , ObjectConstraint morphism c
+     )
+  => (b `morphism` c) -> ((a `coprod` b) `morphism` (a `coprod` c))
+right' = second
+
+either
+  :: ( CategoricalCoproduct morphism coprod
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     , ObjectConstraint morphism c
+     )
+  => (a `morphism` c) -> (b `morphism` c) -> ((a `coprod` b) `morphism` c)
+either = (|||)
+
+class
+    ( CartesianCategory morphism prod t
+    , CocartesianCategory morphism coprod i
+    )
+    => BicartesianCategory morphism prod t coprod i | prod -> coprod, coprod -> prod where
+
+
+class
+    ( CategoricalProduct morphism prod
+    , forall a. ObjectConstraint morphism a => Adjunction morphism morphism (prod a) (exp a)
+    , Profunctor morphism morphism morphism exp
+    ) => ExponentialObject morphism prod exp | prod -> exp, exp -> prod where
+
+  apply
+    :: forall a b.
+      ( ObjectConstraint morphism a
+      , ObjectConstraint morphism b
+      )
+    => ((a `exp` b) `prod` a) `morphism` b
+  apply = uncurry id
+
+  curry
+    :: ( ObjectConstraint morphism a
+       , ObjectConstraint morphism b
+       , ObjectConstraint morphism c
+      )
+    => ((a `prod` b) `morphism` c) -> (a `morphism` (b `exp` c))
+  curry = leftAdjunct . (. swap)
+
+  uncurry
+    :: ( ObjectConstraint morphism a
+       , ObjectConstraint morphism b
+       , ObjectConstraint morphism c
+       )
+    => (a `morphism` (b `exp` c)) -> ((a `prod` b) `morphism` c)
+  uncurry = (. swap) . rightAdjunct
+
+  {-# MINIMAL curry, uncurry #-}
+
+rightAdjunctDefault
+  :: ( ExponentialObject morphism prod exp
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     , ObjectConstraint morphism c
+     )
+  => (a `morphism` exp c b) -> (prod c a `morphism` b)
+rightAdjunctDefault = (. swap) . uncurry
+
+leftAdjunctDefault
+  :: ( ExponentialObject morphism prod exp
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     , ObjectConstraint morphism c
+     )
+  => (prod c a `morphism` b) -> (a `morphism` exp c b)
+leftAdjunctDefault = curry . (. swap)
+
+fmapDefault
+  :: ( ExponentialObject morphism prod exp
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     , ObjectConstraint morphism c
+     )
+  => (b `morphism` c) -> (exp a b `morphism` exp a c)
+fmapDefault f = curry (f . apply)
+
+dimapDefault :: forall morphism prod exp a b x y.
+     ( ExponentialObject morphism prod exp
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     , ObjectConstraint morphism x
+     , ObjectConstraint morphism y
+     )
+  => (x `morphism` a) -> (b `morphism` y) -> (exp a b `morphism` exp x y)
+dimapDefault f g = curry (g . apply . second f)
+
+firstFlipDefault
+  :: forall morphism prod exp a b.
+     ( ExponentialObject morphism prod exp
+     , ObjectConstraint (Flip morphism) a
+     , ObjectConstraint (Flip morphism) b
+     ) => Flip morphism a b -> Transformation morphism morphism (exp a) (exp b)
+firstFlipDefault (Flip f) = Trans (dimapDefault f id)
+
+-- is this even useful?
+pair
+  :: ( ExponentialObject morphism prod exp
+     , ObjectConstraint morphism a
+     , ObjectConstraint morphism b
+     )
+  => a `morphism` (b `exp` (a `prod` b))
+pair = curry id
+
+class
+    ( CartesianCategory morphism prod t
+    , ExponentialObject morphism prod exp
+    ) => CartesianClosedCategory morphism prod t exp where
+
+instance
+    ( CartesianCategory morphism prod t
+    , ExponentialObject morphism prod exp
+    ) => CartesianClosedCategory morphism prod t exp where
+
+class
+    ( CartesianClosedCategory morphism prod t exp
+    , BicartesianCategory morphism prod t coprod i
+    )
+    => BicartesianClosedCategory morphism prod t coprod i exp where
+
+instance
+    ( CartesianClosedCategory morphism prod t exp
+    , BicartesianCategory morphism prod t coprod i
+    )
+    => BicartesianClosedCategory morphism prod t coprod i exp where
+
 
 type MonoidInMonoidalCategory :: forall {k}. Morphism k -> (k -> k -> k) -> k -> k -> Constraint
-class (MonoidalCategory morphism m e) => MonoidInMonoidalCategory morphism m e a | a -> m morphism where
-  mu :: (a `m` a) `morphism` a
-  nu :: e `morphism` a
+class (MonoidalCategory morphism m e) => MonoidInMonoidalCategory morphism m e a where
+  mu :: forall e'-> e ~ e' => (a `m` a) `morphism` a
+  nu :: forall m'-> m ~ m' => e `morphism` a
+
+type ComonoidInMonoidalCategory :: forall {k}. Morphism k -> (k -> k -> k) -> k -> k -> Constraint
+class (MonoidalCategory morphism m e) => ComonoidInMonoidalCategory morphism m e a where
+  comu :: forall e'-> e ~ e' => a `morphism` (a `m` a)
+  conu :: forall m'-> m ~ m' => a `morphism` e
 
 type VertComposition a b c = (b -> c) -> (a -> b) -> (a -> c)
 type VertIdentity a = a -> a
@@ -208,7 +552,7 @@ https://stackoverflow.com/questions/25210743/bicategories-in-haskell
 TODO: look at https://sjoerdvisscher.github.io/proarrow/Proarrow-Category-Bicategory.html
 -}
 
-class (MonoidalCategory two_morphism p e) => VertComp e p one_morphism two_morphism | two_morphism -> p one_morphism where
+class (MonoidalCategory two_morphism p e) => VertComp e p one_morphism two_morphism | two_morphism -> p one_morphism, p -> e where
   lvertComp :: Proxy two_morphism -> (ObjectConstraint one_morphism ((p f g) a), ObjectConstraint one_morphism (f (g a))) =>  (p f g) a `one_morphism` f (g a)
   rvertComp :: Proxy two_morphism -> (ObjectConstraint one_morphism (f (g a)), ObjectConstraint one_morphism ((p f g) a)) => f (g a) `one_morphism` (p f g) a
   -- lvertComp :: Proxy two_morphism -> (p f g) a `one_morphism` f (g a)
@@ -232,14 +576,14 @@ class
     , VertComp e p one_morphism two_morphism
     -- , TwoCategory e' p' e p one_morphism two_morphism
     )
-    => StrictMonad e p one_morphism two_morphism (m :: k -> k) where
+    => StrictMonad e p one_morphism two_morphism (m :: k -> k) | m -> two_morphism where -- functional dependency was originally part of MonoidInMonoidalCategory and should already apply to Monad
   join :: forall a. (ObjectConstraint one_morphism (m (m a)), ObjectConstraint one_morphism (m a)) => (m (m a) `one_morphism` m a)
   -- join = coerce gg
   --   where
   --     gg :: (p m m) a `one_morphism` m a
   --     gg = coerce (mu @e @p @two_morphism @m)
   default join :: forall a. (ObjectConstraint one_morphism (m (m a)), ObjectConstraint one_morphism (m a), ObjectConstraint one_morphism (p m m a), ObjectConstraint two_morphism m, ObjectConstraint two_morphism (p m m)) => (m (m a) `one_morphism` m a)
-  join = renriched (Proxy @two_morphism) mu . rvertComp (Proxy @two_morphism)
+  join = renriched (Proxy @two_morphism) (mu e) . rvertComp (Proxy @two_morphism)
 
   returN :: forall a. (ObjectConstraint one_morphism a, ObjectConstraint one_morphism (m a)) => (a `one_morphism` m a)
   -- returN = coerce gg
@@ -247,7 +591,7 @@ class
   --     gg :: e a `one_morphism` m a
   --     gg = coerce (nu @e @p @two_morphism @m)
   default returN :: forall a. (ObjectConstraint one_morphism a, ObjectConstraint one_morphism (m a), ObjectConstraint one_morphism (e a), ObjectConstraint two_morphism m, ObjectConstraint two_morphism e) => (a `one_morphism` m a)
-  returN = renriched (Proxy @two_morphism) nu . rvertId (Proxy @two_morphism)
+  returN = renriched (Proxy @two_morphism) (nu p) . rvertId (Proxy @two_morphism)
 
 -- https://ncatlab.org/nlab/show/relative+monad#idea
 type RelativeMonad :: forall {i} {j}. Morphism i -> Morphism j -> (i -> j) -> (i -> j) -> Constraint
@@ -295,22 +639,31 @@ instance Category morphism => Category (Flip morphism) where
   id = Flip id
   (.) (Flip f) (Flip g) = Flip (g . f)
 
+instance Category (Transformation (Flip (->)) (Flip (->))) where
+  type ObjectConstraint (Transformation (Flip (->)) (Flip (->))) = Vacuous (Transformation (Flip (->)) (Flip (->)))
+  id = Trans id
+  (.) (Trans f) (Trans g) = Trans (f . g)
+
 -- #########################################
 -- MonoidalCategory with flipped tensor product
 
-instance Functor (->) Nat p => Functor (->) (->) (Flip p a) where
-  fmap f = Flip . runNat (fmap @(->) @Nat f) . runFlip
+ -- first to second
+instance Functor (->) Trans p => Functor (->) (->) (Flip p a) where
+  fmap f = Flip . runTrans (fmap @(->) @Trans f) . runFlip
 
+ -- second to first
 instance
-    ( Functor (->) Nat p
-    ) => Functor (->) Nat (Flip p) where
-  fmap f = Nat (Flip . fmap f . runFlip)
+    ( forall a. Functor (->) (->) (p a)
+    ) => Functor (->) Trans (Flip p) where
+  fmap f = Trans (Flip . fmap f . runFlip)
 
 instance (Bifunctor (->) (->) (->) p) => Bifunctor (->) (->) (->) (Flip p) where
 
-instance MonoidalCategory (->) m e => MonoidalCategory (->) (Flip m) e where
+instance SemigroupalCategory (->) m => SemigroupalCategory (->) (Flip m) where
   rassoc = Flip . first Flip . lassoc . second runFlip . runFlip
   lassoc = Flip . second Flip . rassoc . first runFlip . runFlip
+
+instance MonoidalCategory (->) m e => MonoidalCategory (->) (Flip m) e where
   rleftunit = rrightunit . runFlip
   lleftunit = Flip . lrightunit
   rrightunit = rleftunit . runFlip
@@ -323,11 +676,11 @@ instance (Functor (->) (->) (p a)) => Functor (Flip (->)) (Flip (->)) (p a) wher
   fmap = Flip . fmap . runFlip
 
 instance
-    ( Functor (->) (NatTrans (->) (->)) p
+    ( Functor (->) (Transformation (->) (->)) p
     )
-    => Functor (Flip (->)) (NatTrans (Flip (->)) (Flip (->))) p
+    => Functor (Flip (->)) (Transformation (Flip (->)) (Flip (->))) p
     where
-  fmap f = Nat (Flip (runNat (fmap @(->) @Nat (runFlip f))))
+  fmap f = Trans (Flip (runTrans (fmap @(->) @Trans (runFlip f))))
 
 instance
     ( Bifunctor (->) (->) (->) p
@@ -335,11 +688,16 @@ instance
     => Bifunctor (Flip (->)) (Flip (->)) (Flip (->)) p
 
 instance
+    ( SemigroupalCategory (->) m
+    )
+    => SemigroupalCategory (Flip (->)) m where
+  rassoc = Flip lassoc
+  lassoc = Flip rassoc
+
+instance
     ( MonoidalCategory (->) m e
     )
     => MonoidalCategory (Flip (->)) m e where
-  rassoc = Flip lassoc
-  lassoc = Flip rassoc
   rleftunit = Flip lleftunit
   lleftunit = Flip rleftunit
   rrightunit = Flip lrightunit
@@ -353,27 +711,25 @@ instance
 type Flip1 :: (i -> j -> k -> Type) -> j -> i -> k -> Type
 newtype Flip1 p f g a = Flip1 { runFlip1 :: p g f a }
 
-instance (Functor (->) (->) (p a b)) => Functor (->) (->) (Flip1 p b a) where
-  fmap f = Flip1 . fmap f . runFlip1
-
-instance -- first to second
-    ( Functor (->) (->) b
-    , Functor Nat NatNat p
-    )
-    => Functor Nat Nat (Flip1 p b) where
-  fmap f = Nat (Flip1 . runNat (runNat (fmap @Nat @NatNat f)) . runFlip1)
-
-instance -- second to first
-    ( Functor Nat NatNat p
-    )
-    => Functor Nat NatNat (Flip1 p) where
-  fmap f = Nat (Nat (Flip1 . runNat (fmap @Nat @Nat f) . runFlip1))
+-- #########################################
+-- instances for Flip1 Product
 
 instance
-    ( Bifunctor Nat Nat Nat p
+    ( Functor (->) (->) a
+    , Functor (->) (->) b
     )
-    => Bifunctor Nat Nat Nat (Flip1 p) where
+    => Functor (->) (->) (Flip1 Product a b) where
+  fmap f = Flip1 . fmap f . runFlip1
 
+ -- first to second
+instance Functor (->) (->) a => Functor Nat Nat (Flip1 Product a) where
+  fmap f = Nat (Flip1 . runNat (runTrans (fmap @Nat @(Transformation Nat Nat) f)) . runFlip1)
+
+ -- second to first
+instance Functor Nat (Transformation Nat Nat) (Flip1 Product) where
+  fmap f = Trans (Nat (Flip1 . runNat (fmap @Nat @Nat f) . runFlip1))
+
+instance Bifunctor Nat Nat Nat (Flip1 Product)
 
 bimapFlippedProduct
   ::
@@ -400,6 +756,9 @@ lassocFlipped2 = lassoc @(Flip (->)) @(Flip (,)) @()
 instance Functor (Flip (->)) Nat (->) where
   fmap f = Nat (. runFlip f)
 
+instance Functor (Flip (->)) Trans (->) where
+  fmap f = Trans (. runFlip f)
+
 instance Bifunctor (Flip (->)) (->) (->) (->) where
   bimap f g h = g . h . runFlip f
   first f = (. runFlip f)
@@ -410,15 +769,41 @@ instance Profunctor (->) (->) (->) (->) where
 
 
 -- #########################################
+-- definition of Transformation (Trans) and its Category instance
+-- unlike a natural transformation a mere transformation lacks the functor constraint
+-- this is probably not the best name
+-- #########################################
+
+type Trans :: Morphism (Type -> Type)
+type Trans = Transformation (->) (->)
+
+type Transformation :: forall {i} {k}. Morphism i -> Morphism k -> Morphism (i -> k)
+data Transformation src_morphism tgt_morphism f g where
+  Trans
+    :: {- ( Category src_morphism
+       , Category tgt_morphism
+       , forall a. (ObjectConstraint src_morphism a) => Obj tgt_morphism (f a)
+       )
+    => -} { runTrans :: forall a. ObjectConstraint src_morphism a => tgt_morphism (f a) (g a) }
+    -> Transformation src_morphism tgt_morphism f g
+
+instance Category Trans where
+  type ObjectConstraint Trans = Vacuous Trans
+  id = Trans id
+  (.) (Trans f) (Trans g) = Trans (f . g)
+
+instance Category (Transformation Trans Trans) where
+  type ObjectConstraint (Transformation Trans Trans) = Vacuous (Transformation Trans Trans)
+  id = Trans id
+  (.) (Trans f) (Trans g) = Trans (f . g)
+
+
+-- #########################################
 -- definition of natural transformation (Nat) and its Category instance
 -- #########################################
 
 type Nat :: Morphism (Type -> Type)
 type Nat = NatTrans (->) (->)
-
-type NatNat :: Morphism ((Type -> Type) -> (Type -> Type))
-type NatNat = NatTrans Nat Nat
-type NatNatNat = NatTrans NatNat NatNat
 
 type NatTrans :: forall {i} {k}. Morphism i -> Morphism k -> Morphism (i -> k)
 data NatTrans src_morphism tgt_morphism f g where
@@ -434,10 +819,18 @@ instance (Category src_morphism, Category tgt_morphism) => Category (NatTrans (s
   id = Nat id
   (.) (Nat f) (Nat g) = Nat (f . g)
 
-instance MonoidalCategory Nat Compose Identity where
-  -- in case of the assoc and rightunit conversions we need to utilize the Functor instance of the most outer functor, because the role of its type argument could be nominal
+instance Category (Transformation Nat Nat) where
+  type ObjectConstraint (Transformation Nat Nat) = Functor Nat Nat
+  id = Trans id
+  (.) (Trans f) (Trans g) = Trans (f . g)
+
+instance SemigroupalCategory Nat Compose where
+  -- we need to utilize the Functor instance of the most outer functor, because the role of its type argument could be nominal
   rassoc = Nat (Compose . fmap Compose . getCompose . getCompose)
   lassoc =  Nat (Compose . Compose . fmap getCompose . getCompose)
+
+instance MonoidalCategory Nat Compose Identity where
+  -- in case of the rightunit conversions we need to utilize the Functor instance of the most outer functor, because the role of its type argument could be nominal
   rleftunit = Nat (runIdentity . getCompose)
   lleftunit = Nat (Compose . Identity)
   rrightunit = Nat (fmap runIdentity . getCompose)
@@ -462,8 +855,8 @@ instance (Functor (->) (->) f, Functor (->) (->) g) => Functor (->) (->) (Compos
 instance Functor (->) (->) t => Functor Nat Nat (Compose t) where
   fmap (Nat f) = Nat (Compose . fmap f . getCompose)
 
-instance Functor Nat NatNat Compose where
-  fmap (Nat f) = Nat (Nat (Compose . f . getCompose))
+instance Functor Nat (Transformation Nat Nat) Compose where
+  fmap (Nat f) = Trans (Nat (Compose . f . getCompose))
 
 instance Bifunctor Nat Nat Nat Compose where
   bimap (Nat f) (Nat g) = Nat (Compose . f . fmap g . getCompose)
@@ -479,15 +872,25 @@ instance Functor (->) (->) Identity where
 
 
 -- #########################################
--- definition of transformations of natural transformation (NatNat) and its Category instance
+-- definition of naturals transformations between natural transformations (NatNat)
 -- #########################################
+
+type NatNat :: Morphism ((Type -> Type) -> (Type -> Type))
+type NatNat = NatTrans Nat Nat
+
+instance Category (Transformation NatNat NatNat) where
+  type ObjectConstraint (Transformation NatNat NatNat) = Functor NatNat NatNat
+  id = Trans id
+  (.) (Trans f) (Trans g) = Trans (f . g)
 
 fmap2 :: forall f a b. (Functor Nat Nat f, Functor (->) (->) a,  Functor (->) (->) b) => (forall x. a x -> b x) -> (forall x. f a x -> f b x)
 fmap2 f = runNat (fmap @Nat @Nat @f @a @b (Nat f))
 
-instance MonoidalCategory NatNat ComposeT IdentityT where
+instance SemigroupalCategory NatNat ComposeT where
   rassoc = Nat (Nat (ComposeT . fmap2 ComposeT . getComposeT . getComposeT))
   lassoc = Nat (Nat (ComposeT . ComposeT . fmap2 getComposeT . getComposeT))
+
+instance MonoidalCategory NatNat ComposeT IdentityT where
   rleftunit = Nat (Nat (runIdentityT . getComposeT))
   lleftunit = Nat (Nat (ComposeT . IdentityT))
   rrightunit = Nat (Nat (fmap2 runIdentityT . getComposeT))
@@ -516,8 +919,8 @@ instance (Functor Nat Nat f, Functor Nat Nat g) => Functor Nat Nat (ComposeT f g
 instance Functor Nat Nat z => Functor NatNat NatNat (ComposeT z) where
   fmap (Nat f) = Nat (Nat (ComposeT . fmap2 (runNat f) . getComposeT))
 
-instance Functor NatNat NatNatNat ComposeT where
-  fmap (Nat f) = Nat (Nat (Nat (ComposeT . runNat f . getComposeT)))
+instance Functor NatNat (Transformation NatNat NatNat) ComposeT where
+  fmap (Nat f) = Trans (Nat (Nat (ComposeT . runNat f . getComposeT)))
 
 instance Bifunctor NatNat NatNat NatNat ComposeT where
   bimap (Nat f) (Nat g) = Nat (Nat (ComposeT . runNat f . fmap2 (runNat g) . getComposeT))
@@ -536,43 +939,73 @@ instance Functor (->) (->) f => Functor (->) (->) (IdentityT f) where
 
 
 -- #########################################
--- monoidal category instances for (,) in the category (->)
+-- cartesian category instances for (,) in the category (->)
 -- #########################################
 
 instance Functor (->) (->) ((,) a) where
   fmap = Prelude.fmap
 
-instance Functor (->) Nat (,) where
-  fmap f = Nat (Base.Bifunctor.first f)
+instance Functor (->) Trans (,) where
+  fmap f = Trans (Base.Bifunctor.first f)
 
 instance Bifunctor (->) (->) (->) (,) where
   bimap = Base.Bifunctor.bimap
   first = Base.Bifunctor.first
 
-instance MonoidalCategory (->) (,) () where
+instance SemigroupalCategory (->) (,) where
   rassoc ((a, b), c) = (a, (b, c))
   lassoc (a, (b, c)) = ((a, b), c)
+
+instance MonoidalCategory (->) (,) () where
   rleftunit ((), a) = a
   lleftunit a = ((), a)
   rrightunit (a, ()) = a
   lrightunit a = (a, ())
 
+instance ComonoidInMonoidalCategory (->) (,) () a where
+  comu _ x = (x, x)
+  conu _ _ = ()
+instance TerminalObject (->) () where
+  terminate _ = ()
+
+instance SymmetricSemigroupalCategory (->) (,) where
+  swap (x, y) = (y, x)
+
+instance CategoricalProduct (->) (,) where
+  fst (x, _) = x
+  snd (_, y) = y
+  diag x = (x, x)
+
+
+instance CartesianCategory (->) (,) () where
+
+instance Adjunction (->) (->) ((,) a) ((->) a) where
+  leftAdjunct = leftAdjunctDefault
+  rightAdjunct = rightAdjunctDefault
+
+instance ExponentialObject (->) (,) (->) where
+  apply = Prelude.uncurry (Prelude.$)
+  curry = Prelude.curry
+  uncurry = Prelude.uncurry
+
+instance BicartesianCategory (->) (,) () Either Void where
+
 
 -- #########################################
--- monoidal category instances for Either in the category (->)
+-- cocartesian category instances for Either in the category (->)
 -- #########################################
 
 instance Functor (->) (->) (Either a) where
   fmap = Prelude.fmap
 
-instance Functor (->) Nat Either where
-  fmap f = Nat (Base.Bifunctor.first f)
+instance Functor (->) Trans Either where
+  fmap f = Trans (Base.Bifunctor.first f)
 
 instance Bifunctor (->) (->) (->) Either where
   bimap = Base.Bifunctor.bimap
   first = Base.Bifunctor.first
 
-instance MonoidalCategory (->) Either Void where
+instance SemigroupalCategory (->) Either where
   rassoc = \case
     Left (Left a)  -> Left a
     Left (Right b) -> Right (Left b)
@@ -581,14 +1014,39 @@ instance MonoidalCategory (->) Either Void where
     Left a          -> Left (Left a)
     Right (Left b)  -> Left (Right b)
     Right (Right c) -> Right c
+
+instance MonoidalCategory (->) Either Void where
   rleftunit = Prelude.either absurd id
   lleftunit = Right
   rrightunit = Prelude.either id absurd
   lrightunit = Left
 
+instance MonoidInMonoidalCategory (->) Either Void a where
+  mu _ = \case
+    Left x -> x
+    Right y -> y
+  nu _ = absurd
+
+instance InitialObject (->) Void where
+  initiate = absurd
+
+instance SymmetricSemigroupalCategory (->) Either where
+  swap = \case
+    Left x -> Right x
+    Right y -> Left y
+
+instance CategoricalCoproduct (->) Either where
+  left = Left
+  right = Right
+  codiag = \case
+    Left x -> x
+    Right y -> y
+
+instance CocartesianCategory (->) Either Void where
+
 
 -- #########################################
--- monoidal category instances for Product in the category Nat
+-- cartesian category instances for Product in the category Nat
 -- #########################################
 
 instance (Functor (->) (->) f, Functor (->) (->) g) => Functor (->) (->) (Product f g) where
@@ -597,8 +1055,8 @@ instance (Functor (->) (->) f, Functor (->) (->) g) => Functor (->) (->) (Produc
 instance (Functor (->) (->) a) => Functor Nat Nat (Product a) where
   fmap (Nat f) = Nat (\(Pair x y) -> Pair x (f y))
 
-instance Functor Nat NatNat Product where
-  fmap (Nat f) = Nat (Nat (\(Pair x y) -> Pair (f x) y))
+instance Functor Nat (Transformation Nat Nat) Product where
+  fmap (Nat f) = Trans (Nat (\(Pair x y) -> Pair (f x) y))
 
 instance Bifunctor Nat Nat Nat Product where
   bimap (Nat f) (Nat g) = Nat (\(Pair x y) -> Pair (f x) (g y))
@@ -607,17 +1065,38 @@ instance Bifunctor Nat Nat Nat Product where
 instance Functor (->) (->) Proxy where
   fmap _f Proxy = Proxy
 
-instance MonoidalCategory Nat Product Proxy where
+instance SemigroupalCategory Nat Product where
   rassoc = Nat (\(Pair (Pair a b) c) -> Pair a (Pair b c))
   lassoc = Nat (\(Pair a (Pair b c)) -> Pair (Pair a b) c)
+
+instance MonoidalCategory Nat Product Proxy where
   rleftunit = Nat (\(Pair Proxy a) -> a)
   lleftunit = Nat (Pair Proxy)
   rrightunit = Nat (\(Pair a Proxy) -> a)
   lrightunit = Nat (`Pair` Proxy)
 
+instance (Functor (->) (->) f) => ComonoidInMonoidalCategory Nat Product Proxy f where
+  comu _ = Nat (\fa -> Pair fa fa)
+  conu _ = Nat (\_ -> Proxy)
+
+instance TerminalObject Nat Proxy where
+  terminate = Nat (\_ -> Proxy)
+
+instance SymmetricSemigroupalCategory Nat Product where
+  swap = Nat (\(Pair fa ga) -> Pair ga fa)
+
+instance CategoricalProduct Nat Product where
+  fst = Nat (\(Pair fa _) -> fa)
+  snd = Nat (\(Pair _ fb) -> fb)
+  diag = Nat (\fa -> Pair fa fa)
+
+instance CartesianCategory Nat Product Proxy where
+
+instance BicartesianCategory Nat Product Proxy Sum Void1 where
+
 
 -- #########################################
--- monoidal category instances for Sum in the category Nat
+-- cocartesian category instances for Sum in the category Nat
 -- #########################################
 
 instance (Functor (->) (->) f, Functor (->) (->) g) => Functor (->) (->) (Sum f g) where
@@ -630,8 +1109,8 @@ instance (Functor (->) (->) a) => Functor Nat Nat (Sum a) where
     InL ax -> InL ax
     InR bx -> InR (f bx))
 
-instance Functor Nat NatNat Sum where
-  fmap (Nat f) = Nat (Nat (\case
+instance Functor Nat (Transformation Nat Nat) Sum where
+  fmap (Nat f) = Trans (Nat (\case
     InL ax -> InL (f ax)
     InR bx -> InR bx))
 
@@ -651,7 +1130,7 @@ absurd1 v = case v of {}
 instance Functor (->) (->) Void1 where
   fmap _f = absurd1
 
-instance MonoidalCategory Nat Sum Void1 where
+instance SemigroupalCategory Nat Sum where
   rassoc = Nat (\case
     InL (InL a) -> InL a
     InL (InR b) -> InR (InL b)
@@ -660,6 +1139,8 @@ instance MonoidalCategory Nat Sum Void1 where
     InL a       -> InL (InL a)
     InR (InL b) -> InL (InR b)
     InR (InR c) -> InR c)
+
+instance MonoidalCategory Nat Sum Void1 where
   rleftunit = Nat (\case
     InL v -> absurd1 v
     InR a -> a)
@@ -669,6 +1150,206 @@ instance MonoidalCategory Nat Sum Void1 where
     InR v -> absurd1 v)
   lrightunit = Nat InL
 
+instance (Functor (->) (->) f) => MonoidInMonoidalCategory Nat Sum Void1 f where
+  mu _ = Nat (\case
+    InL fa -> fa
+    InR ga -> ga)
+  nu _ = Nat absurd1
+
+instance InitialObject Nat Void1 where
+  initiate = Nat absurd1
+
+instance SymmetricSemigroupalCategory Nat Sum where
+  swap = Nat (\case
+    InL fa -> InR fa
+    InR ga -> InL ga)
+
+instance CategoricalCoproduct Nat Sum where
+  left = Nat InL
+  right = Nat InR
+  codiag = Nat (\case
+    InL fa -> fa
+    InR ga -> ga)
+
+instance CocartesianCategory Nat Sum Void1 where
+
+
+-- #########################################
+-- cartesian category instances for Product in the category Trans
+-- #########################################
+
+-- duplicate instance
+-- instance (Functor (->) (->) f, Functor (->) (->) g) => Functor (->) (->) (Product f g) where
+--   fmap f (Pair fa ga) = Pair (fmap f fa) (fmap f ga)
+
+instance Functor Trans Trans (Product a) where
+  fmap (Trans f) = Trans (\(Pair x y) -> Pair x (f y))
+
+instance Functor Trans (Transformation Trans Trans)  Product where
+  fmap (Trans f) = Trans (Trans (\(Pair x y) -> Pair (f x) y))
+
+instance Bifunctor Trans Trans Trans Product where
+  bimap (Trans f) (Trans g) = Trans (\(Pair x y) -> Pair (f x) (g y))
+  first (Trans f) = Trans (\(Pair x y) -> Pair (f x) y)
+
+-- duplicate instance
+-- instance Functor (->) (->) Proxy where
+--   fmap _f Proxy = Proxy
+
+instance SemigroupalCategory Trans Product where
+  rassoc = Trans (\(Pair (Pair a b) c) -> Pair a (Pair b c))
+  lassoc = Trans (\(Pair a (Pair b c)) -> Pair (Pair a b) c)
+
+instance MonoidalCategory Trans Product Proxy where
+  rleftunit = Trans (\(Pair Proxy a) -> a)
+  lleftunit = Trans (Pair Proxy)
+  rrightunit = Trans (\(Pair a Proxy) -> a)
+  lrightunit = Trans (`Pair` Proxy)
+
+instance ComonoidInMonoidalCategory Trans Product Proxy f where
+  comu _ = Trans (\fa -> Pair fa fa)
+  conu _ = Trans (\_ -> Proxy)
+
+instance TerminalObject Trans Proxy where
+  terminate = Trans (\_ -> Proxy)
+
+instance SymmetricSemigroupalCategory Trans Product where
+  swap = Trans (\(Pair fa ga) -> Pair ga fa)
+
+instance CategoricalProduct Trans Product where
+  fst = Trans (\(Pair fa _) -> fa)
+  snd = Trans (\(Pair _ fb) -> fb)
+  diag = Trans (\fa -> Pair fa fa)
+
+instance CartesianCategory Trans Product Proxy where
+
+instance BicartesianCategory Trans Product Proxy Sum Void1 where
+
+
+-- #########################################
+-- cocartesian category instances for Sum in the category Trans
+-- #########################################
+
+-- duplicate instance
+-- instance (Functor (->) (->) f, Functor (->) (->) g) => Functor (->) (->) (Sum f g) where
+--   fmap f = \case
+--     InL fa -> InL (fmap f fa)
+--     InR ga -> InR (fmap f ga)
+
+instance Functor Trans Trans (Sum a) where
+  fmap (Trans f) = Trans (\case
+    InL ax -> InL ax
+    InR bx -> InR (f bx))
+
+instance Functor Trans (Transformation Trans Trans) Sum where
+  fmap (Trans f) = Trans (Trans (\case
+    InL ax -> InL (f ax)
+    InR bx -> InR bx))
+
+instance Bifunctor Trans Trans Trans Sum where
+  bimap (Trans f) (Trans g) = Trans (\case
+    InL ax -> InL (f ax)
+    InR bx -> InR (g bx))
+  first (Trans f) = Trans (\case
+    InL ax -> InL (f ax)
+    InR bx -> InR bx)
+
+-- duplicate datatype definition
+-- data Void1 a
+
+-- duplicate function definition
+-- absurd1 :: Void1 x -> b
+-- absurd1 v = case v of {}
+
+-- duplicate instance
+-- instance Functor (->) (->) Void1 where
+--   fmap _f = absurd1
+
+instance SemigroupalCategory Trans Sum where
+  rassoc = Trans (\case
+    InL (InL a) -> InL a
+    InL (InR b) -> InR (InL b)
+    InR c       -> InR (InR c))
+  lassoc = Trans (\case
+    InL a       -> InL (InL a)
+    InR (InL b) -> InL (InR b)
+    InR (InR c) -> InR c)
+
+instance MonoidalCategory Trans Sum Void1 where
+  rleftunit = Trans (\case
+    InL v -> absurd1 v
+    InR a -> a)
+  lleftunit = Trans InR
+  rrightunit = Trans (\case
+    InL a -> a
+    InR v -> absurd1 v)
+  lrightunit = Trans InL
+
+instance MonoidInMonoidalCategory Trans Sum Void1 f where
+  mu _ = Trans (\case
+    InL fa -> fa
+    InR ga -> ga)
+  nu _ = Trans absurd1
+
+instance InitialObject Trans Void1 where
+  initiate = Trans absurd1
+
+instance SymmetricSemigroupalCategory Trans Sum where
+  swap = Trans (\case
+    InL fa -> InR fa
+    InR ga -> InL ga)
+
+instance CategoricalCoproduct Trans Sum where
+  left = Trans InL
+  right = Trans InR
+  codiag = Trans (\case
+    InL fa -> fa
+    InR ga -> ga)
+
+instance CocartesianCategory Trans Sum Void1 where
+
+
+-- #########################################
+-- Exponential object in the category Trans
+-- #########################################
+
+type Transs :: (Type -> Type) -> (Type -> Type) -> (Type -> Type)
+type Transs = Transformationn (->) (->)
+
+type Transformationn :: forall {i} {k}. Morphism i -> Morphism k -> (i -> k) -> (i -> k) -> i -> Type
+data Transformationn src_morphism tgt_morphism f g a where
+  Transs
+    :: { runTranss :: ObjectConstraint src_morphism a => tgt_morphism (f a) (g a) }
+    -> Transformationn src_morphism tgt_morphism f g a
+
+instance Functor Trans Trans (Transs a) where
+  fmap (Trans f) = Trans  (\(Transs g) -> Transs (f . g))
+
+instance Adjunction Trans Trans (Product a) (Transs a) where
+  leftAdjunct = leftAdjunctDefault
+  rightAdjunct = rightAdjunctDefault
+
+instance Functor (Flip Trans) (Transformation Trans Trans) Transs where
+  fmap = firstFlipDefault
+
+instance Bifunctor (Flip Trans) Trans Trans Transs
+
+instance Profunctor Trans Trans Trans Transs where
+  dimap = dimapDefault
+
+instance ExponentialObject Trans Product Transs where
+  curry (Trans f) = Trans (\x -> Transs (\y -> f (Pair x y)))
+  uncurry (Trans f) = Trans (\(Pair x y) -> runTranss (f x) y)
+
+
+-- #########################################
+-- instances for familiar Monoids
+-- #########################################
+
+instance Prelude.Monoid m => MonoidInMonoidalCategory (->) (,) () (Data.Semigroup.WrappedMonoid m) where
+  mu _ = Prelude.uncurry (Prelude.<>)
+  nu _ = Prelude.mempty
+
 
 -- #########################################
 -- instances for familiar Monads such as Maybe or IO
@@ -677,23 +1358,23 @@ instance MonoidalCategory Nat Sum Void1 where
 instance Prelude.Monad m => Functor (->) (->) (Control.Applicative.WrappedMonad m) where
   fmap = Prelude.fmap . coerce
 instance Prelude.Monad m => MonoidInMonoidalCategory Nat Compose Identity (Control.Applicative.WrappedMonad m) where
-  mu = Nat (Control.Monad.join . coerce)
-  nu = Nat (Prelude.return . coerce)
+  mu _ = Nat (Control.Monad.join . coerce)
+  nu _ = Nat (Prelude.return . coerce)
 
 instance Prelude.Monad m => StrictMonad Identity Compose (->) Nat (Control.Applicative.WrappedMonad m)
 
 instance Functor (->) (->) IO where
   fmap = Prelude.fmap . coerce
 instance MonoidInMonoidalCategory Nat Compose Identity IO where
-  mu = Nat (Control.Monad.join . coerce)
-  nu = Nat (Prelude.return . coerce)
+  mu _ = Nat (Control.Monad.join . coerce)
+  nu _ = Nat (Prelude.return . coerce)
 instance StrictMonad Identity Compose (->) Nat IO
 
 instance Functor (->) (->) Maybe where
   fmap = Prelude.fmap . coerce
 instance MonoidInMonoidalCategory Nat Compose Identity Maybe where
-  mu = Nat (Control.Monad.join . coerce)
-  nu = Nat (Prelude.return . coerce)
+  mu _ = Nat (Control.Monad.join . coerce)
+  nu _ = Nat (Prelude.return . coerce)
 instance StrictMonad Identity Compose (->) Nat Maybe
 
 
@@ -715,12 +1396,12 @@ instance (Prelude.Monad m) => RelativeMonad Nat Nat IdentityT (StreamFlip m) whe
   (=<<) (Nat f) = Nat (coerce (concats @_ @m . maps @m @_ @(Stream _ m) (coerce f)))
 
 instance (Functor (->) (->) f, Prelude.Monad m) => MonoidInMonoidalCategory Nat Compose Identity (StreamFlip m f) where
-  mu = Nat (MkStreamFlip . joinStream . fmap getStream . getStream . getCompose)
-  nu = Nat (MkStreamFlip . Return . runIdentity)
+  mu _ = Nat (MkStreamFlip . joinStream . fmap getStream . getStream . getCompose)
+  nu _ = Nat (MkStreamFlip . Return . runIdentity)
 
 instance (Prelude.Monad m) => MonoidInMonoidalCategory NatNat ComposeT IdentityT (StreamFlip m) where
-  mu = Nat (Nat (coerce (concats . maps coerce)))
-  nu = Nat (Nat (coerce yields))
+  mu _ = Nat (Nat (coerce (concats . maps coerce)))
+  nu _ = Nat (Nat (coerce yields))
 
 instance (Prelude.Monad m) => StrictMonad IdentityT ComposeT Nat NatNat (StreamFlip m) where
 
