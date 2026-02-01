@@ -17,10 +17,10 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
 {-# LANGUAGE DefaultSignatures #-}
-{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE QualifiedDo #-}
 
 module StreamListLikeMonad where
 import Prelude (IO, putStrLn, undefined)
@@ -78,7 +78,7 @@ class
     ( Category src1_morphism
     , Category src2_morphism
     , Category tgt_morphism
-    , Functor src1_morphism (NatTrans src2_morphism tgt_morphism) p -- fmap = first
+    , Functor src1_morphism (Transformation src2_morphism tgt_morphism) p -- fmap = first
     , forall z. ObjectConstraint src1_morphism z => Functor src2_morphism tgt_morphism (p z) -- fmap = second
     -- , forall a b. (ObjectConstraint src_morphism a, ObjectConstraint src_morphism b) => ObjectConstraint tgt_morphism (p a b)
     -- the line above does not work, instead we use the workaround from https://gitlab.haskell.org/ghc/ghc/-/issues/14860#note_495352 in the line below:
@@ -93,7 +93,7 @@ class
        , ObjectConstraint src2_morphism d
        )
     => (a `src1_morphism` b) -> (c `src2_morphism` d) -> p a c `tgt_morphism` p b d
-  bimap f g = (runNat . fmap @src1_morphism @(NatTrans src2_morphism tgt_morphism)) f . fmap g
+  bimap f g = (runTrans . fmap @src1_morphism @(Transformation src2_morphism tgt_morphism)) f . fmap g
 
   first
     :: ( ObjectConstraint src1_morphism a
@@ -101,7 +101,7 @@ class
        , ObjectConstraint src2_morphism c
        )
     => (a `src1_morphism` b) -> p a c `tgt_morphism` p b c
-  first = runNat . fmap @src1_morphism @(NatTrans src2_morphism tgt_morphism)
+  first = runTrans . fmap @src1_morphism @(Transformation src2_morphism tgt_morphism)
 
 second
   :: ( Bifunctor src1_morphism src2_morphism tgt_morphism p
@@ -127,7 +127,7 @@ class (Bifunctor (Flip src1_morphism) src2_morphism tgt_morphism p) => Profuncto
        , ObjectConstraint src2_morphism d
        )
     => (b `src1_morphism` a) -> (c `src2_morphism` d) -> p a c `tgt_morphism` p b d
-  dimap f g = (runNat . fmap @(Flip src1_morphism) @(NatTrans src2_morphism tgt_morphism)) (Flip f) . fmap g
+  dimap f g = (runTrans . fmap @(Flip src1_morphism) @(Transformation src2_morphism tgt_morphism)) (Flip f) . fmap g
 
   lmap
     :: ( ObjectConstraint src1_morphism a
@@ -155,7 +155,7 @@ class Bifunctor (Flip src1_morphism) (Flip src2_morphism) tgt_morphism p => Bico
        , ObjectConstraint src2_morphism d
        )
     => (b `src1_morphism` a) -> (d `src2_morphism` c) -> p a c `tgt_morphism` p b d
-  bicontramap f g = (runNat . fmap @(Flip src1_morphism) @(NatTrans (Flip src2_morphism) tgt_morphism)) (Flip f) . fmap (Flip g)
+  bicontramap f g = (runTrans . fmap @(Flip src1_morphism) @(Transformation (Flip src2_morphism) tgt_morphism)) (Flip f) . fmap (Flip g)
 
 type TensorProduct k = k -> k -> k
 type TensorUnit k = k
@@ -298,13 +298,15 @@ instance Category morphism => Category (Flip morphism) where
 -- #########################################
 -- MonoidalCategory with flipped tensor product
 
-instance Functor (->) Nat p => Functor (->) (->) (Flip p a) where
-  fmap f = Flip . runNat (fmap @(->) @Nat f) . runFlip
+ -- first to second
+instance Functor (->) Trans p => Functor (->) (->) (Flip p a) where
+  fmap f = Flip . runTrans (fmap @(->) @Trans f) . runFlip
 
+ -- second to first
 instance
-    ( Functor (->) Nat p
-    ) => Functor (->) Nat (Flip p) where
-  fmap f = Nat (Flip . fmap f . runFlip)
+    ( forall a. Functor (->) (->) (p a)
+    ) => Functor (->) Trans (Flip p) where
+  fmap f = Trans (Flip . fmap f . runFlip)
 
 instance (Bifunctor (->) (->) (->) p) => Bifunctor (->) (->) (->) (Flip p) where
 
@@ -319,15 +321,20 @@ instance MonoidalCategory (->) m e => MonoidalCategory (->) (Flip m) e where
 -- #########################################
 -- MonoidalCategory instance with opposite category
 
+instance Category (Transformation (Flip (->)) (Flip (->))) where
+  type ObjectConstraint (Transformation (Flip (->)) (Flip (->))) = Vacuous (Transformation (Flip (->)) (Flip (->)))
+  id = Trans id
+  (.) (Trans f) (Trans g) = Trans (f . g)
+
 instance (Functor (->) (->) (p a)) => Functor (Flip (->)) (Flip (->)) (p a) where
   fmap = Flip . fmap . runFlip
 
 instance
-    ( Functor (->) (NatTrans (->) (->)) p
+    ( Functor (->) (Transformation (->) (->)) p
     )
-    => Functor (Flip (->)) (NatTrans (Flip (->)) (Flip (->))) p
+    => Functor (Flip (->)) (Transformation (Flip (->)) (Flip (->))) p
     where
-  fmap f = Nat (Flip (runNat (fmap @(->) @Nat (runFlip f))))
+  fmap f = Trans (Flip (runTrans (fmap @(->) @Trans (runFlip f))))
 
 instance
     ( Bifunctor (->) (->) (->) p
@@ -353,27 +360,25 @@ instance
 type Flip1 :: (i -> j -> k -> Type) -> j -> i -> k -> Type
 newtype Flip1 p f g a = Flip1 { runFlip1 :: p g f a }
 
-instance (Functor (->) (->) (p a b)) => Functor (->) (->) (Flip1 p b a) where
-  fmap f = Flip1 . fmap f . runFlip1
-
-instance -- first to second
-    ( Functor (->) (->) b
-    , Functor Nat NatNat p
-    )
-    => Functor Nat Nat (Flip1 p b) where
-  fmap f = Nat (Flip1 . runNat (runNat (fmap @Nat @NatNat f)) . runFlip1)
-
-instance -- second to first
-    ( Functor Nat NatNat p
-    )
-    => Functor Nat NatNat (Flip1 p) where
-  fmap f = Nat (Nat (Flip1 . runNat (fmap @Nat @Nat f) . runFlip1))
+-- #########################################
+-- instances for Flip1 Product
 
 instance
-    ( Bifunctor Nat Nat Nat p
+    ( Functor (->) (->) a
+    , Functor (->) (->) b
     )
-    => Bifunctor Nat Nat Nat (Flip1 p) where
+    => Functor (->) (->) (Flip1 Product a b) where
+  fmap f = Flip1 . fmap f . runFlip1
 
+ -- first to second
+instance Functor (->) (->) a => Functor Nat Nat (Flip1 Product a) where
+  fmap f = Nat (Flip1 . runNat (runTrans (fmap @Nat @(Transformation Nat Nat) f)) . runFlip1)
+
+ -- second to first
+instance Functor Nat (Transformation Nat Nat) (Flip1 Product) where
+  fmap f = Trans (Nat (Flip1 . runNat (fmap @Nat @Nat f) . runFlip1))
+
+instance Bifunctor Nat Nat Nat (Flip1 Product)
 
 bimapFlippedProduct
   ::
@@ -400,6 +405,9 @@ lassocFlipped2 = lassoc @(Flip (->)) @(Flip (,)) @()
 instance Functor (Flip (->)) Nat (->) where
   fmap f = Nat (. runFlip f)
 
+instance Functor (Flip (->)) Trans (->) where
+  fmap f = Trans (. runFlip f)
+
 instance Bifunctor (Flip (->)) (->) (->) (->) where
   bimap f g h = g . h . runFlip f
   first f = (. runFlip f)
@@ -407,6 +415,48 @@ instance Bifunctor (Flip (->)) (->) (->) (->) where
 instance Profunctor (->) (->) (->) (->) where
   dimap f g h = g . h . f
   lmap f g = g . f
+
+
+-- #########################################
+-- definition of Transformation (Trans) and its Category instance
+-- unlike a natural transformation a mere transformation lacks the functor constraint
+-- this is probably not the best name
+-- #########################################
+
+type Trans :: Morphism (Type -> Type)
+type Trans = Transformation (->) (->)
+
+type Transformation :: forall {i} {k}. Morphism i -> Morphism k -> Morphism (i -> k)
+data Transformation src_morphism tgt_morphism f g where
+  Trans
+    :: {- ( Category src_morphism
+       , Category tgt_morphism
+       , forall a. (ObjectConstraint src_morphism a) => Obj tgt_morphism (f a)
+       )
+    => -} { runTrans :: forall a. ObjectConstraint src_morphism a => tgt_morphism (f a) (g a) }
+    -> Transformation src_morphism tgt_morphism f g
+
+instance Category Trans where
+  type ObjectConstraint Trans = Vacuous Trans
+  id = Trans id
+  (.) (Trans f) (Trans g) = Trans (f . g)
+
+instance Category (Transformation Trans Trans) where
+  type ObjectConstraint (Transformation Trans Trans) = Vacuous (Transformation Trans Trans)
+  id = Trans id
+  (.) (Trans f) (Trans g) = Trans (f . g)
+
+-- move this instance definition to a different section where its relevant?
+instance Category (Transformation Nat Nat) where
+  type ObjectConstraint (Transformation Nat Nat) = Functor Nat Nat
+  id = Trans id
+  (.) (Trans f) (Trans g) = Trans (f . g)
+
+-- move this instance definition to a different section where its relevant?
+instance Category (Transformation NatNat NatNat) where
+  type ObjectConstraint (Transformation NatNat NatNat) = Functor NatNat NatNat
+  id = Trans id
+  (.) (Trans f) (Trans g) = Trans (f . g)
 
 
 -- #########################################
@@ -418,7 +468,6 @@ type Nat = NatTrans (->) (->)
 
 type NatNat :: Morphism ((Type -> Type) -> (Type -> Type))
 type NatNat = NatTrans Nat Nat
-type NatNatNat = NatTrans NatNat NatNat
 
 type NatTrans :: forall {i} {k}. Morphism i -> Morphism k -> Morphism (i -> k)
 data NatTrans src_morphism tgt_morphism f g where
@@ -451,6 +500,26 @@ instance VertComp Identity Compose (->) Nat where
   lenriched _ f = Nat f
   renriched _ f = runNat f
 
+type MonadMorphism :: Morphism (Type -> Type)
+type MonadMorphism = MonadMorphism' (->)
+
+type MonadMorphism' :: forall {i}. Morphism i -> Morphism (i -> i)
+data MonadMorphism' morphism f g where
+  MonadMorphism
+    :: (morphism ~ (->), AuxMonad f) => { runMonadMorphism :: forall a. ObjectConstraint morphism a
+    => morphism (f a) (g a) }
+    -> MonadMorphism' morphism f g
+
+instance Category MonadMorphism where
+  type ObjectConstraint MonadMorphism = AuxMonad
+  id = MonadMorphism id
+  (.) (MonadMorphism f) (MonadMorphism g) = MonadMorphism (f . g)
+
+instance Category (Transformation MonadMorphism Nat) where
+  type ObjectConstraint (Transformation MonadMorphism Nat) = Functor MonadMorphism Nat
+  id = Trans id
+  (.) (Trans f) (Trans g) = Trans (f . g)
+
 
 -- #########################################
 -- instances for Compose
@@ -462,8 +531,8 @@ instance (Functor (->) (->) f, Functor (->) (->) g) => Functor (->) (->) (Compos
 instance Functor (->) (->) t => Functor Nat Nat (Compose t) where
   fmap (Nat f) = Nat (Compose . fmap f . getCompose)
 
-instance Functor Nat NatNat Compose where
-  fmap (Nat f) = Nat (Nat (Compose . f . getCompose))
+instance Functor Nat (Transformation Nat Nat) Compose where
+  fmap (Nat f) = Trans (Nat (Compose . f . getCompose))
 
 instance Bifunctor Nat Nat Nat Compose where
   bimap (Nat f) (Nat g) = Nat (Compose . f . fmap g . getCompose)
@@ -516,8 +585,8 @@ instance (Functor Nat Nat f, Functor Nat Nat g) => Functor Nat Nat (ComposeT f g
 instance Functor Nat Nat z => Functor NatNat NatNat (ComposeT z) where
   fmap (Nat f) = Nat (Nat (ComposeT . fmap2 (runNat f) . getComposeT))
 
-instance Functor NatNat NatNatNat ComposeT where
-  fmap (Nat f) = Nat (Nat (Nat (ComposeT . runNat f . getComposeT)))
+instance Functor NatNat (Transformation NatNat NatNat) ComposeT where
+  fmap (Nat f) = Trans (Nat (Nat (ComposeT . runNat f . getComposeT)))
 
 instance Bifunctor NatNat NatNat NatNat ComposeT where
   bimap (Nat f) (Nat g) = Nat (Nat (ComposeT . runNat f . fmap2 (runNat g) . getComposeT))
@@ -542,8 +611,8 @@ instance Functor (->) (->) f => Functor (->) (->) (IdentityT f) where
 instance Functor (->) (->) ((,) a) where
   fmap = Prelude.fmap
 
-instance Functor (->) Nat (,) where
-  fmap f = Nat (Base.Bifunctor.first f)
+instance Functor (->) Trans (,) where
+  fmap f = Trans (Base.Bifunctor.first f)
 
 instance Bifunctor (->) (->) (->) (,) where
   bimap = Base.Bifunctor.bimap
@@ -565,8 +634,8 @@ instance MonoidalCategory (->) (,) () where
 instance Functor (->) (->) (Either a) where
   fmap = Prelude.fmap
 
-instance Functor (->) Nat Either where
-  fmap f = Nat (Base.Bifunctor.first f)
+instance Functor (->) Trans Either where
+  fmap f = Trans (Base.Bifunctor.first f)
 
 instance Bifunctor (->) (->) (->) Either where
   bimap = Base.Bifunctor.bimap
@@ -597,8 +666,8 @@ instance (Functor (->) (->) f, Functor (->) (->) g) => Functor (->) (->) (Produc
 instance (Functor (->) (->) a) => Functor Nat Nat (Product a) where
   fmap (Nat f) = Nat (\(Pair x y) -> Pair x (f y))
 
-instance Functor Nat NatNat Product where
-  fmap (Nat f) = Nat (Nat (\(Pair x y) -> Pair (f x) y))
+instance Functor Nat (Transformation Nat Nat) Product where
+  fmap (Nat f) = Trans (Nat (\(Pair x y) -> Pair (f x) y))
 
 instance Bifunctor Nat Nat Nat Product where
   bimap (Nat f) (Nat g) = Nat (\(Pair x y) -> Pair (f x) (g y))
@@ -630,8 +699,8 @@ instance (Functor (->) (->) a) => Functor Nat Nat (Sum a) where
     InL ax -> InL ax
     InR bx -> InR (f bx))
 
-instance Functor Nat NatNat Sum where
-  fmap (Nat f) = Nat (Nat (\case
+instance Functor Nat (Transformation Nat Nat) Sum where
+  fmap (Nat f) = Trans (Nat (\case
     InL ax -> InL (f ax)
     InR bx -> InR bx))
 
@@ -698,81 +767,142 @@ instance StrictMonad Identity Compose (->) Nat Maybe
 
 
 -- #########################################
--- definition of StreamFlip and its instances
+-- instances for Stream
 -- #########################################
 
--- flips type parameters m and f
-newtype StreamFlip m f r = MkStreamFlip { getStream :: Stream f m r }
+instance (Functor (->) (->) f, AuxMonad m) => Functor (->) (->) (Stream f m) where
+  fmap = fmapStream
 
-instance (Functor (->) (->) f, Prelude.Monad m) => Functor (->) (->) (StreamFlip m f) where
-  fmap = coerce (fmap @(->) @(->) @(Stream f m))
+instance (Functor (->) (->) f, AuxMonad m) => MonoidInMonoidalCategory Nat Compose Identity (Stream f m) where
+  mu = Nat (joinStream . getCompose)
+  nu = Nat (Return . runIdentity)
 
-instance (Prelude.Monad m) => Functor Nat Nat (StreamFlip m) where
-  fmap (Nat f) = Nat (coerce (maps @m f))
+instance Functor Nat (Transformation MonadMorphism Nat) Stream where
+  fmap (Nat f) = Trans (Nat (maps f))
 
-instance (Prelude.Monad m) => RelativeMonad Nat Nat IdentityT (StreamFlip m) where
+instance Functor (->) (->) f => Functor MonadMorphism Nat (Stream f) where
+  fmap (MonadMorphism f) = Nat (hoistStream f)
+
+instance Bifunctor Nat MonadMorphism Nat Stream where
+  first (Nat f) = Nat (maps f)
+  bimap (Nat f) (MonadMorphism g) = Nat (mapsHoistStream f g)
+
+instance (AuxMonad m) => RelativeMonad Nat Nat IdentityT (Flip1 Stream m) where
   pure = Nat (coerce yields)
   (=<<) (Nat f) = Nat (coerce (concats @_ @m . maps @m @_ @(Stream _ m) (coerce f)))
 
-instance (Functor (->) (->) f, Prelude.Monad m) => MonoidInMonoidalCategory Nat Compose Identity (StreamFlip m f) where
-  mu = Nat (MkStreamFlip . joinStream . fmap getStream . getStream . getCompose)
-  nu = Nat (MkStreamFlip . Return . runIdentity)
+instance (Functor (->) (->) f, AuxMonad m) => MonoidInMonoidalCategory Nat Compose Identity (Flip1 Stream m f) where
+  mu = Nat (Flip1 . joinStream . fmap runFlip1 . runFlip1 . getCompose)
+  nu = Nat (Flip1 . Return . runIdentity)
 
-instance (Prelude.Monad m) => MonoidInMonoidalCategory NatNat ComposeT IdentityT (StreamFlip m) where
+
+-- #########################################
+-- instances for Flip1 Stream
+-- #########################################
+
+instance (Functor (->) (->) (Stream f m)) => Functor (->) (->) (Flip1 Stream m f) where
+  fmap f = Flip1 . fmap f . runFlip1
+
+-- first to second
+instance (AuxMonad m) => Functor Nat Nat (Flip1 Stream m) where
+  fmap f = Nat (Flip1 . runNat (runTrans (fmap @Nat @(Transformation MonadMorphism Nat) f)) . runFlip1)
+  -- fmap f = Nat (Flip1 . maps (runNat f) . runFlip1)
+
+instance (AuxMonad m) => MonoidInMonoidalCategory NatNat ComposeT IdentityT (Flip1 Stream m) where
   mu = Nat (Nat (coerce (concats . maps coerce)))
   nu = Nat (Nat (coerce yields))
 
-instance (Prelude.Monad m) => StrictMonad IdentityT ComposeT Nat NatNat (StreamFlip m) where
+instance (AuxMonad m) => StrictMonad IdentityT ComposeT Nat NatNat (Flip1 Stream m) where
+
+ -- second to first
+instance Functor MonadMorphism (Transformation Nat Nat) (Flip1 Stream) where
+  fmap (MonadMorphism f) = Trans (Nat (Flip1 . hoistStream f . runFlip1))
+
+instance Bifunctor MonadMorphism Nat Nat (Flip1 Stream) where
+  first (MonadMorphism f) = Nat (Flip1 . hoistStream f . runFlip1)
+  bimap (MonadMorphism f) (Nat g) = Nat (Flip1 . mapsHoistStream g f . runFlip1)
+
+
+-- #########################################
+-- definitions for AuxMonad
+-- #########################################
+
+-- temporary class that requires both Monad from Prelude as well as Functor from this module
+-- will hopefully be superseeded by a Monad class defined in this module, which will require Functor from this module
+class (MonoidInMonoidalCategory Nat Compose Identity m, Functor (->) (->) m) => AuxMonad m
+instance (MonoidInMonoidalCategory Nat Compose Identity m, Functor (->) (->) m) => AuxMonad m
+
+return :: forall m a. AuxMonad m => a -> m a
+return x = (runNat (nu :: Nat Identity m)) (Identity x)
+
+(>>=) :: forall m a b. AuxMonad m => m a -> (a -> m b) -> m b
+(>>=) mx f = (runNat (mu :: Nat (Compose m m) m)) (Compose (fmap f mx))
+
+(>>) :: forall m a b. AuxMonad m => m a -> m b -> m b
+(>>) mx my = mx >>= \_ -> my
 
 
 -- #########################################
 -- definitions for Stream
 -- #########################################
 
-
--- Functor instance
-
-instance (Functor (->) (->) f, Prelude.Monad m) => Functor (->) (->) (Stream f m) where
-  fmap f = loop where
-    loop stream = case stream of
-      Return r -> Return (f r)
-      Effect m -> Effect (do {stream' <- m; Prelude.return (loop stream')})
-      Step   g -> Step (fmap loop g)
-  {-# INLINABLE fmap #-}
-
-
 -- copypasted definitions that were changed to
--- require Functor (->) (->) f instead of Prelude.Functor f
+-- require AuxMonad m instead of Prelude.Monad m
+-- and Functor (->) (->) f instead of Prelude.Functor f
 
-maps :: (Prelude.Monad m, Functor (->) (->) f) => (forall x. f x -> g x) -> Stream f m r -> Stream g m r
+maps :: (AuxMonad m, Functor (->) (->) f) => (forall x. f x -> g x) -> Stream f m r -> Stream g m r
 maps phi = loop where
   loop stream = case stream of
     Return r -> Return r
-    Effect m -> Effect (Prelude.fmap loop m)
+    Effect m -> Effect (fmap loop m)
     Step   f -> Step (phi (fmap loop f))
 {-# INLINABLE maps #-}
 
-concats :: forall f m r. (Prelude.Monad m, Functor (->) (->) f) => Stream (Stream f m) m r -> Stream f m r
+concats :: forall f m r. (AuxMonad m, Functor (->) (->) f) => Stream (Stream f m) m r -> Stream f m r
 concats = loop where
   loop :: Stream (Stream f m) m r -> Stream f m r
   loop stream = case stream of
     Return r -> Return r
-    Effect m -> (Effect . Prelude.fmap Return) m `bindStream` loop
+    Effect m -> (Effect . fmap Return) m `bindStream` loop
     Step fs  -> fs `bindStream` loop
 {-# INLINE concats #-}
 
-bindStream :: (Prelude.Monad m, Functor (->) (->) f) => Stream f m t -> (t -> Stream f m r) -> Stream f m r
+bindStream :: (AuxMonad m, Functor (->) (->) f) => Stream f m t -> (t -> Stream f m r) -> Stream f m r
 stream `bindStream` f =
   loop stream where
   loop stream0 = case stream0 of
     Step fstr -> Step (fmap loop fstr)
-    Effect m  -> Effect (Prelude.fmap loop m)
+    Effect m  -> Effect (fmap loop m)
     Return r  -> f r
 {-# INLINABLE bindStream #-}
 
-joinStream :: (Prelude.Monad m, Functor (->) (->) f) => Stream f m (Stream f m r) -> Stream f m r
+joinStream :: (AuxMonad m, Functor (->) (->) f) => Stream f m (Stream f m r) -> Stream f m r
 joinStream stream = bindStream stream id
 
-yields :: (Prelude.Monad m, Functor (->) (->) f) => f r -> Stream f m r
+yields :: (AuxMonad m, Functor (->) (->) f) => f r -> Stream f m r
 yields fr = Step (fmap Return fr)
 {-# INLINE yields #-}
+
+fmapStream :: forall f m a b. (AuxMonad m, Functor (->) (->) f) => (a -> b) -> Stream f m a -> Stream f m b
+fmapStream f = loop where
+  loop stream = case stream of
+    Return r -> Return (f r)
+    Effect m -> Effect (StreamListLikeMonad.do {stream' <- m; return (loop stream')})
+    Step   g -> Step (fmap loop g)
+{-# INLINABLE fmapStream #-}
+
+hoistStream :: (AuxMonad m, Functor (->) (->) f) => (forall x. m x -> n x) -> Stream f m a -> Stream f n a
+hoistStream trans = loop where
+  loop stream = case stream of
+    Return r -> Return r
+    Effect m -> Effect (trans (fmap loop m))
+    Step f   -> Step (fmap loop f)
+{-# INLINABLE hoistStream #-}
+
+mapsHoistStream :: (AuxMonad m, Functor (->) (->) f) => (forall x. f x -> g x) -> (forall x. m x -> n x) -> Stream f m r -> Stream g n r
+mapsHoistStream phi trans = loop where
+  loop stream = case stream of
+    Return r -> Return r
+    Effect m -> Effect (trans (fmap loop m))
+    Step g   -> Step (phi (fmap loop g))
+{-# INLINABLE mapsHoistStream #-}
